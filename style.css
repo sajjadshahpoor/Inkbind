@@ -1565,6 +1565,10 @@ h1 {
 
 /* ---- Site footer ---- */
 
+main {
+  margin-bottom: 48px;
+}
+
 .site-footer {
   margin-top: auto;
   padding-top: 20px;
