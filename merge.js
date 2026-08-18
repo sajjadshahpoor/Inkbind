@@ -1,4 +1,4 @@
-const { PDFDocument } = PDFLib;
+const { PDFDocument, degrees } = PDFLib;
 pdfjsLib.GlobalWorkerOptions.workerSrc = 'lib/pdf.worker.min.js';
 
 const THUMB_WIDTH = 220;
@@ -144,26 +144,48 @@ async function addFilePages(file) {
 
   const entries = [];
   for (let i = 0; i < pdfDoc.numPages; i++) {
-    entries.push({ id: crypto.randomUUID(), file, pageIndex: i, name: file.name, thumbUrl: null });
+    entries.push({ id: crypto.randomUUID(), file, pageIndex: i, name: file.name, thumbUrl: null, previewUrl: null, rotation: 0 });
   }
   pages.push(...entries);
   render();
 
   for (const entry of entries) {
-    try {
-      const page = await pdfDoc.getPage(entry.pageIndex + 1);
-      const viewport = page.getViewport({ scale: 1 });
-      const scaledViewport = page.getViewport({ scale: THUMB_WIDTH / viewport.width });
-      const canvas = document.createElement('canvas');
-      canvas.width = scaledViewport.width;
-      canvas.height = scaledViewport.height;
-      await page.render({ canvasContext: canvas.getContext('2d'), viewport: scaledViewport }).promise;
-      entry.thumbUrl = canvas.toDataURL('image/jpeg', 0.85);
-      updateThumb(entry);
-    } catch (err) {
-      console.error(err);
-    }
+    await renderThumbForEntry(entry);
   }
+}
+
+// entry.rotation (0/90/180/270) is the EXTRA rotation the user asked for on top of
+// whatever the page's own /Rotate metadata already applies — total = page.rotate + entry.rotation.
+function totalRotationFor(page, entry) {
+  return (page.rotate + entry.rotation + 360) % 360;
+}
+
+async function renderThumbForEntry(entry) {
+  try {
+    const pdfDoc = pdfjsDocCache.get(entry.file);
+    const page = await pdfDoc.getPage(entry.pageIndex + 1);
+    const rotation = totalRotationFor(page, entry);
+    const viewport = page.getViewport({ scale: 1, rotation });
+    const scaledViewport = page.getViewport({ scale: THUMB_WIDTH / viewport.width, rotation });
+    const canvas = document.createElement('canvas');
+    canvas.width = scaledViewport.width;
+    canvas.height = scaledViewport.height;
+    await page.render({ canvasContext: canvas.getContext('2d'), viewport: scaledViewport }).promise;
+    entry.thumbUrl = canvas.toDataURL('image/jpeg', 0.85);
+    updateThumb(entry);
+  } catch (err) {
+    console.error(err);
+  }
+}
+
+function rotatePage(id, delta) {
+  const entry = pages.find(p => p.id === id);
+  if (!entry) return;
+  entry.rotation = ((entry.rotation + delta) % 360 + 360) % 360;
+  entry.thumbUrl = null;
+  entry.previewUrl = null;
+  renderThumbForEntry(entry);
+  if (selectedId === id) showPreview(entry);
 }
 
 function removePage(id) {
@@ -186,7 +208,13 @@ function render() {
     card.dataset.id = entry.id;
 
     card.innerHTML = `
-      <div class="page-thumb-wrap">${entry.thumbUrl ? `<img src="${entry.thumbUrl}" alt="Page ${index + 1}">` : '<div class="spinner"></div>'}</div>
+      <div class="page-thumb-wrap">
+        <div class="page-thumb-img-slot">${entry.thumbUrl ? `<img src="${entry.thumbUrl}" alt="Page ${index + 1}">` : '<div class="spinner"></div>'}</div>
+        <div class="page-rotate-controls">
+          <button class="page-rotate-btn" data-dir="left" aria-label="Rotate left 90°" title="Rotate left 90°">&#10226;</button>
+          <button class="page-rotate-btn" data-dir="right" aria-label="Rotate right 90°" title="Rotate right 90°">&#10227;</button>
+        </div>
+      </div>
       <span class="page-index">${index + 1}</span>
       <button class="page-remove" aria-label="Remove page">&times;</button>
       <div class="page-meta" title="${entry.name} — page ${entry.pageIndex + 1}">${entry.name} · p.${entry.pageIndex + 1}</div>
@@ -195,6 +223,16 @@ function render() {
     card.querySelector('.page-remove').addEventListener('click', (e) => {
       e.stopPropagation();
       removePage(entry.id);
+    });
+
+    card.querySelector('.page-rotate-btn[data-dir="left"]').addEventListener('click', (e) => {
+      e.stopPropagation();
+      rotatePage(entry.id, -90);
+    });
+
+    card.querySelector('.page-rotate-btn[data-dir="right"]').addEventListener('click', (e) => {
+      e.stopPropagation();
+      rotatePage(entry.id, 90);
     });
 
     card.addEventListener('click', () => selectPage(entry.id));
@@ -211,7 +249,8 @@ function render() {
 function updateThumb(entry) {
   const card = pageGridEl.querySelector(`[data-id="${entry.id}"]`);
   if (!card) return;
-  card.querySelector('.page-thumb-wrap').innerHTML = `<img src="${entry.thumbUrl}" alt="thumbnail">`;
+  const slot = card.querySelector('.page-thumb-img-slot');
+  if (slot) slot.innerHTML = `<img src="${entry.thumbUrl}" alt="thumbnail">`;
 }
 
 function attachDragHandlers(card, entry) {
@@ -289,8 +328,9 @@ async function showPreview(entry) {
   try {
     const pdfDoc = pdfjsDocCache.get(entry.file);
     const page = await pdfDoc.getPage(entry.pageIndex + 1);
-    const viewport = page.getViewport({ scale: 1 });
-    const scaledViewport = page.getViewport({ scale: PREVIEW_WIDTH / viewport.width });
+    const rotation = totalRotationFor(page, entry);
+    const viewport = page.getViewport({ scale: 1, rotation });
+    const scaledViewport = page.getViewport({ scale: PREVIEW_WIDTH / viewport.width, rotation });
     const canvas = document.createElement('canvas');
     canvas.width = scaledViewport.width;
     canvas.height = scaledViewport.height;
@@ -348,6 +388,10 @@ async function mergeFiles() {
       try {
         const [copiedPage] = await mergedPdf.copyPages(srcDoc, [entry.pageIndex]);
         mergedPdf.addPage(copiedPage);
+        if (entry.rotation) {
+          const current = copiedPage.getRotation().angle;
+          copiedPage.setRotation(degrees((current + entry.rotation + 360) % 360));
+        }
       } catch (copyErr) {
         console.error('copyPages failed, falling back to a rendered image:', copyErr);
         rasterizedFiles.add(entry.name);
@@ -379,7 +423,10 @@ async function mergeFiles() {
 async function addRasterPage(mergedPdf, entry) {
   const pdfjsDoc = pdfjsDocCache.get(entry.file);
   const page = await pdfjsDoc.getPage(entry.pageIndex + 1);
-  const renderViewport = page.getViewport({ scale: 2 });
+  // There's no /Rotate entry to set on a rasterized page, so the rotation is baked
+  // directly into the rendered pixels via the viewport instead.
+  const rotation = totalRotationFor(page, entry);
+  const renderViewport = page.getViewport({ scale: 2, rotation });
   const canvas = document.createElement('canvas');
   canvas.width = renderViewport.width;
   canvas.height = renderViewport.height;
@@ -388,7 +435,7 @@ async function addRasterPage(mergedPdf, entry) {
   const imgBytes = dataUrlToUint8Array(canvas.toDataURL('image/jpeg', 0.92));
   const embeddedImg = await mergedPdf.embedJpg(imgBytes);
 
-  const pageViewport = page.getViewport({ scale: 1 });
+  const pageViewport = page.getViewport({ scale: 1, rotation });
   const newPage = mergedPdf.addPage([pageViewport.width, pageViewport.height]);
   newPage.drawImage(embeddedImg, { x: 0, y: 0, width: pageViewport.width, height: pageViewport.height });
 }

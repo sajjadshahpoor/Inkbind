@@ -1363,6 +1363,84 @@ function attachObjectHandlers(obj, resizable) {
   }
 }
 
+// ---------- Smart alignment guides (Canva-style snapping while dragging) ----------
+//
+// While dragging any object, its left/center/right and top/middle/bottom lines are
+// compared against the same lines from every other object on the page AND from the
+// page's existing PDF text (so a stamp or signature can snap flush with a paragraph or
+// heading that was already there), plus the page edges/center. Whichever candidate is
+// closest within SNAP_THRESHOLD wins, the drag snaps to it, and a thin guide line marks
+// where. Targets are collected once per drag (not per mousemove) for performance.
+
+const SNAP_THRESHOLD = 6;
+
+function collectAlignmentTargets(pageNum, excludeObjId) {
+  const pageInfo = pages.find(p => p.pageNum === pageNum);
+  if (!pageInfo) return { xs: [], ys: [] };
+
+  const xs = [];
+  const ys = [];
+  const seenX = new Set();
+  const seenY = new Set();
+  const addX = v => { const r = Math.round(v); if (!seenX.has(r)) { seenX.add(r); xs.push(v); } };
+  const addY = v => { const r = Math.round(v); if (!seenY.has(r)) { seenY.add(r); ys.push(v); } };
+
+  const pageW = DISPLAY_WIDTH;
+  const pageH = pageInfo.pdfHeight * pageInfo.displayScale;
+  addX(0); addX(pageW); addX(pageW / 2);
+  addY(0); addY(pageH); addY(pageH / 2);
+
+  for (const o of objects) {
+    if (o.pageNum !== pageNum || o.id === excludeObjId) continue;
+    if (o.type === 'line' || o.type === 'arrow' || typeof o.x !== 'number') continue;
+    const w = o.width != null ? o.width : (o.el ? o.el.offsetWidth : 0);
+    const h = o.height != null ? o.height : (o.el ? o.el.offsetHeight : 0);
+    addX(o.x); addX(o.x + w / 2); addX(o.x + w);
+    addY(o.y); addY(o.y + h / 2); addY(o.y + h);
+  }
+
+  const overlayRect = pageInfo.overlayEl.getBoundingClientRect();
+  pageInfo.textLayerEl.querySelectorAll('span').forEach(span => {
+    if (!span.textContent || !span.textContent.trim()) return;
+    const r = span.getBoundingClientRect();
+    if (!r.width || !r.height) return;
+    const left = r.left - overlayRect.left;
+    const top = r.top - overlayRect.top;
+    addX(left); addX(left + r.width / 2); addX(left + r.width);
+    addY(top); addY(top + r.height / 2); addY(top + r.height);
+  });
+
+  return { xs, ys };
+}
+
+function findClosestSnap(candidates, targets, threshold) {
+  let best = null;
+  for (const c of candidates) {
+    for (const t of targets) {
+      const diff = t - c;
+      if (Math.abs(diff) <= threshold && (!best || Math.abs(diff) < Math.abs(best.delta))) {
+        best = { delta: diff, guideValue: t };
+      }
+    }
+  }
+  return best;
+}
+
+function createAlignGuides(overlay) {
+  const vLine = document.createElement('div');
+  vLine.className = 'align-guide align-guide-v';
+  const hLine = document.createElement('div');
+  hLine.className = 'align-guide align-guide-h';
+  overlay.appendChild(vLine);
+  overlay.appendChild(hLine);
+  return { vLine, hLine };
+}
+
+function removeAlignGuides(guides) {
+  guides.vLine.remove();
+  guides.hLine.remove();
+}
+
 function startObjectDrag(obj, e, isDoubleClick) {
   const startMouseX = e.clientX;
   const startMouseY = e.clientY;
@@ -1370,6 +1448,15 @@ function startObjectDrag(obj, e, isDoubleClick) {
   const startY = obj.y;
   const isLine = obj.type === 'line' || obj.type === 'arrow';
   const startX1 = obj.x1, startY1 = obj.y1, startX2 = obj.x2, startY2 = obj.y2;
+  const pageInfo = pages.find(p => p.pageNum === obj.pageNum);
+  let objW = 0, objH = 0;
+  if (!isLine && pageInfo) {
+    const rect = obj.el.getBoundingClientRect();
+    objW = obj.width != null ? obj.width : rect.width;
+    objH = obj.height != null ? obj.height : rect.height;
+  }
+  let snapTargets = null;
+  let guides = null;
   let moved = false;
 
   function onMove(ev) {
@@ -1383,16 +1470,46 @@ function startObjectDrag(obj, e, isDoubleClick) {
       obj.x1 = startX1 + dx; obj.y1 = startY1 + dy;
       obj.x2 = startX2 + dx; obj.y2 = startY2 + dy;
       layoutLineObject(obj);
-    } else {
-      obj.x = startX + dx;
-      obj.y = startY + dy;
-      obj.el.style.left = obj.x + 'px';
-      obj.el.style.top = obj.y + 'px';
+      return;
     }
+
+    if (!snapTargets && pageInfo) {
+      snapTargets = collectAlignmentTargets(obj.pageNum, obj.id);
+      guides = createAlignGuides(pageInfo.overlayEl);
+    }
+
+    let x = startX + dx;
+    let y = startY + dy;
+
+    if (guides) {
+      const snapX = findClosestSnap([x, x + objW / 2, x + objW], snapTargets.xs, SNAP_THRESHOLD);
+      if (snapX) {
+        x += snapX.delta;
+        guides.vLine.style.left = snapX.guideValue + 'px';
+        guides.vLine.style.display = 'block';
+      } else {
+        guides.vLine.style.display = 'none';
+      }
+
+      const snapY = findClosestSnap([y, y + objH / 2, y + objH], snapTargets.ys, SNAP_THRESHOLD);
+      if (snapY) {
+        y += snapY.delta;
+        guides.hLine.style.top = snapY.guideValue + 'px';
+        guides.hLine.style.display = 'block';
+      } else {
+        guides.hLine.style.display = 'none';
+      }
+    }
+
+    obj.x = x;
+    obj.y = y;
+    obj.el.style.left = x + 'px';
+    obj.el.style.top = y + 'px';
   }
   function onUp() {
     document.removeEventListener('mousemove', onMove);
     document.removeEventListener('mouseup', onUp);
+    if (guides) removeAlignGuides(guides);
     if (moved) {
       pushHistory();
     } else if (isDoubleClick && (obj.type === 'text' || obj.type === 'date')) {
