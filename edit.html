@@ -25,46 +25,51 @@
     </div>
 
     <div id="editorWorkspace" class="editor-workspace" hidden>
-      <div class="editor-toolbar">
+      <div class="mode-tabs">
+        <button class="mode-tab active" data-mode="edit">Edit</button>
+        <button class="mode-tab" data-mode="fillsign">Fill &amp; Sign</button>
+        <button class="mode-tab" data-mode="forms">Create Forms</button>
+        <button class="mode-tab" data-mode="deletepages">Delete Pages</button>
+      </div>
+
+      <div id="canvasToolbar" class="editor-toolbar">
         <div class="toolbar-group">
-          <button id="toolSelect" class="tool-btn active" data-tool="select" title="Select &amp; move">Select</button>
+          <button id="toolSelect" class="tool-btn active" data-tool="select" title="Select, move, or click existing text to edit it">Select</button>
         </div>
 
         <div class="toolbar-sep"></div>
 
-        <div class="toolbar-group">
-          <button id="toolText" class="tool-btn" data-tool="text" title="Click a page to add text">+ Text</button>
-          <button id="toolDate" class="tool-btn" data-tool="date" title="Click a page to add today's date">Date</button>
+        <div class="toolbar-group" data-modes="edit">
+          <button class="tool-btn" data-tool="text" title="Click a page to add text">+ Text</button>
+          <button class="tool-btn" data-tool="whiteout" title="Drag over content to cover it">Whiteout</button>
+          <button class="tool-btn" data-tool="highlight" title="Drag over content to highlight it">Highlight</button>
+          <button class="tool-btn" data-tool="image" title="Insert an image">Image</button>
         </div>
 
-        <div class="toolbar-sep"></div>
+        <div class="toolbar-group" data-modes="edit">
+          <button class="tool-btn" data-tool="draw" title="Freehand drawing">Draw</button>
+          <button class="tool-btn" data-tool="line" title="Drag to draw a straight line">Line</button>
+          <button class="tool-btn" data-tool="arrow" title="Drag to draw an arrow">Arrow</button>
+        </div>
 
-        <div class="toolbar-group">
+        <div class="toolbar-group" data-modes="fillsign">
+          <button class="tool-btn" data-tool="text" title="Click a page to add text">+ Text</button>
+          <button class="tool-btn" data-tool="date" title="Click a page to add today's date">Date</button>
+        </div>
+
+        <div class="toolbar-group" data-modes="fillsign">
           <button id="toolSignature" class="tool-btn" data-tool="signature" title="Add your signature">Signature</button>
           <button id="toolInitials" class="tool-btn" data-tool="initials" title="Add your initials">Initials</button>
         </div>
 
-        <div class="toolbar-sep"></div>
-
-        <div class="toolbar-group">
-          <button id="toolCheckmark" class="tool-btn" data-tool="checkmark" title="Click a page to add a checkmark">Checkmark</button>
-          <button id="toolCross" class="tool-btn" data-tool="cross" title="Click a page to add a cross">Cross</button>
-          <button id="toolImage" class="tool-btn" data-tool="image" title="Insert an image">Image</button>
+        <div class="toolbar-group" data-modes="fillsign">
+          <button class="tool-btn" data-tool="checkmark" title="Click a page to add a checkmark">Checkmark</button>
+          <button class="tool-btn" data-tool="cross" title="Click a page to add a cross">Cross</button>
         </div>
 
-        <div class="toolbar-sep"></div>
-
-        <div class="toolbar-group">
-          <button id="toolWhiteout" class="tool-btn" data-tool="whiteout" title="Drag over content to cover it">Whiteout</button>
-          <button id="toolHighlight" class="tool-btn" data-tool="highlight" title="Drag over content to highlight it">Highlight</button>
-        </div>
-
-        <div class="toolbar-sep"></div>
-
-        <div class="toolbar-group">
-          <button id="toolDraw" class="tool-btn" data-tool="draw" title="Freehand drawing">Draw</button>
-          <button id="toolLine" class="tool-btn" data-tool="line" title="Drag to draw a straight line">Line</button>
-          <button id="toolArrow" class="tool-btn" data-tool="arrow" title="Drag to draw an arrow">Arrow</button>
+        <div class="toolbar-group" data-modes="forms">
+          <button class="tool-btn" data-tool="formtext" title="Click a page to add a fillable text field">Text Field</button>
+          <button class="tool-btn" data-tool="formcheckbox" title="Click a page to add a fillable checkbox">Checkbox</button>
         </div>
 
         <div class="toolbar-sep"></div>
@@ -100,9 +105,28 @@
       </div>
 
       <div id="pagesContainer" class="pages-container"></div>
+
+      <div id="deletePagesView" class="delete-pages-view" hidden>
+        <p class="delete-pages-hint">Click a page to mark it for deletion, then confirm below. This clears any edits, signatures, or fields you've placed.</p>
+        <div id="deletePagesGrid" class="page-grid"></div>
+        <div class="delete-pages-actions">
+          <span id="deletePagesCount" class="delete-pages-count">0 pages selected</span>
+          <button id="deletePagesBtn" class="btn btn-danger" disabled>Delete selected pages</button>
+        </div>
+      </div>
     </div>
 
     <p id="editorStatus" class="status"></p>
+
+    <footer class="site-footer">
+      <p class="footer-line">
+        &copy; 2026 The Inkbind. All rights reserved.
+        <span class="footer-sep">&middot;</span>
+        <a href="privacy.html">Privacy &amp; Cookie Policy</a>
+        <span class="footer-sep">&middot;</span>
+        Designed &amp; Developed by <a href="https://www.linkedin.com/in/sajjadshahpoor" target="_blank" rel="noopener noreferrer">Sajjad</a>
+      </p>
+    </footer>
   </div>
 
   <input type="file" id="imageFileInput" accept="image/png,image/jpeg" hidden>
@@ -172,5 +196,6 @@
   <script src="lib/pdf-lib.min.js"></script>
   <script src="lib/pdf.min.js"></script>
   <script src="edit.js"></script>
+  <script src="cookie-consent.js"></script>
 </body>
 </html>

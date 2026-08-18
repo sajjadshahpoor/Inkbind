@@ -476,6 +476,34 @@ h1 {
   overflow: hidden;
 }
 
+.mode-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 10px 16px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.mode-tab {
+  border: none;
+  background: none;
+  padding: 10px 16px;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text-muted);
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+}
+
+.mode-tab:hover {
+  color: var(--text);
+}
+
+.mode-tab.active {
+  color: var(--primary);
+  border-bottom-color: var(--primary);
+}
+
 .editor-toolbar {
   display: flex;
   align-items: center;
@@ -490,6 +518,14 @@ h1 {
   align-items: center;
   gap: 6px;
   flex-wrap: wrap;
+}
+
+.toolbar-group[data-modes] {
+  display: none;
+}
+
+.toolbar-group[data-modes].mode-active {
+  display: flex;
 }
 
 .format-group {
@@ -916,4 +952,281 @@ h1 {
 
 .save-sig-field input {
   width: auto;
+}
+
+/* ---- Existing-text edit layer ---- */
+
+.text-layer {
+  position: absolute;
+  inset: 0;
+  line-height: 1;
+  overflow: hidden;
+}
+
+.text-layer span {
+  color: transparent;
+  position: absolute;
+  white-space: pre;
+  transform-origin: 0% 0%;
+  pointer-events: none;
+}
+
+.pages-container.mode-edit.tool-select .text-layer span {
+  pointer-events: auto;
+  cursor: pointer;
+}
+
+.pages-container.mode-edit.tool-select .text-layer span:hover {
+  background: rgba(79, 70, 229, 0.16);
+  border-radius: 2px;
+}
+
+.pages-container.mode-edit.tool-select .page-overlay {
+  pointer-events: none;
+}
+
+.pages-container.mode-edit.tool-select .page-overlay .edit-object {
+  pointer-events: auto;
+}
+
+.edit-text.text-edit {
+  white-space: pre-wrap;
+  overflow: hidden;
+}
+
+/* ---- Create Forms field placeholders ---- */
+
+.edit-formfield {
+  box-sizing: border-box;
+  border: 1.5px dashed #2563eb;
+  background: rgba(37, 99, 235, 0.08);
+  border-radius: 3px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.edit-formfield.selected {
+  border-style: solid;
+}
+
+.edit-formfield .formfield-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: #2563eb;
+  pointer-events: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding: 0 4px;
+}
+
+.edit-formcheckbox .formfield-label {
+  font-size: 13px;
+}
+
+.edit-formfield .resize-handle {
+  background: #2563eb;
+}
+
+/* ---- Delete Pages mode ---- */
+
+.delete-pages-view {
+  padding: 22px 24px 26px;
+}
+
+.delete-pages-hint {
+  margin: 0 0 16px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.delete-pages-view .page-grid {
+  margin-top: 0;
+}
+
+.delete-pages-view .page-card {
+  cursor: pointer;
+}
+
+.delete-pages-view .page-card.marked-delete .page-thumb-wrap {
+  border-color: var(--danger);
+  opacity: 0.45;
+}
+
+.delete-pages-view .page-card.marked-delete::after {
+  content: "Delete";
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--danger);
+  background: rgba(255, 255, 255, 0.55);
+  border-radius: var(--radius);
+  pointer-events: none;
+}
+
+.delete-pages-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 14px;
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+
+.delete-pages-count {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-right: auto;
+}
+
+.btn-danger {
+  background: var(--danger);
+  color: #fff;
+}
+
+.btn-danger:not(:disabled):hover {
+  background: #b91c1c;
+}
+
+/* ---- Site footer ---- */
+
+.site-footer {
+  margin-top: 40px;
+  padding-top: 20px;
+  border-top: 1px solid var(--border);
+  text-align: center;
+}
+
+.footer-line {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--text-muted);
+  line-height: 1.8;
+}
+
+.footer-line a {
+  color: var(--text-muted);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.footer-line a:hover {
+  color: var(--primary);
+}
+
+.footer-sep {
+  margin: 0 8px;
+  color: var(--border);
+}
+
+/* ---- Cookie consent banner ---- */
+
+.cookie-banner {
+  position: fixed;
+  left: 20px;
+  right: 20px;
+  bottom: 20px;
+  z-index: 60;
+  max-width: 720px;
+  margin: 0 auto;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14px;
+  padding: 16px 20px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 12px 32px rgba(15, 17, 23, 0.18);
+}
+
+.cookie-banner-text {
+  flex: 1 1 320px;
+  margin: 0;
+  font-size: 13px;
+  color: var(--text);
+  line-height: 1.5;
+}
+
+.cookie-banner-text a {
+  color: var(--primary);
+}
+
+.cookie-banner-actions {
+  display: flex;
+  gap: 10px;
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+@media (max-width: 520px) {
+  .cookie-banner {
+    left: 12px;
+    right: 12px;
+    bottom: 12px;
+    padding: 16px;
+  }
+
+  .cookie-banner-actions {
+    margin-left: 0;
+    width: 100%;
+  }
+
+  .cookie-banner-actions .btn {
+    flex: 1;
+  }
+}
+
+/* ---- Privacy policy page ---- */
+
+.policy {
+  max-width: 760px;
+  margin: 0 auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 8px 32px 24px;
+}
+
+.policy section {
+  padding: 20px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.policy section:last-child {
+  border-bottom: none;
+}
+
+.policy h2 {
+  margin: 0 0 10px;
+  font-size: 16px;
+}
+
+.policy p {
+  margin: 0 0 10px;
+  font-size: 14px;
+  line-height: 1.65;
+  color: var(--text);
+}
+
+.policy p:last-child {
+  margin-bottom: 0;
+}
+
+.policy ul {
+  margin: 0 0 10px;
+  padding-left: 22px;
+  font-size: 14px;
+  line-height: 1.65;
+  color: var(--text);
+}
+
+.policy a {
+  color: var(--primary);
 }

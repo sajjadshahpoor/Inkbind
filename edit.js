@@ -12,9 +12,19 @@ const pagesContainer = document.getElementById('pagesContainer');
 const editorStatus = document.getElementById('editorStatus');
 
 const toolButtons = Array.from(document.querySelectorAll('.tool-btn[data-tool]'));
-const PLACE_ON_CLICK = new Set(['text', 'date', 'checkmark', 'cross']);
+const PLACE_ON_CLICK = new Set(['text', 'date', 'checkmark', 'cross', 'formtext', 'formcheckbox']);
 const DRAG_TO_CREATE = new Set(['whiteout', 'highlight', 'draw', 'line', 'arrow']);
 const MODAL_TOOLS = new Set(['signature', 'initials']);
+
+const modeTabs = Array.from(document.querySelectorAll('.mode-tab[data-mode]'));
+const canvasToolbar = document.getElementById('canvasToolbar');
+const toolbarModeGroups = Array.from(document.querySelectorAll('.toolbar-group[data-modes]'));
+const deletePagesView = document.getElementById('deletePagesView');
+const deletePagesGrid = document.getElementById('deletePagesGrid');
+const deletePagesCount = document.getElementById('deletePagesCount');
+const deletePagesBtn = document.getElementById('deletePagesBtn');
+
+const MODE_DEFAULT_TOOL = { edit: 'select', fillsign: 'select', forms: 'select', deletepages: 'select' };
 
 const fontSizeField = document.getElementById('fontSizeField');
 const strokeWidthField = document.getElementById('strokeWidthField');
@@ -42,6 +52,8 @@ const toolDefaults = {
   arrow: { color: '#1f2430', strokeWidth: 3 },
   checkmark: { color: '#16a34a' },
   cross: { color: '#dc2626' },
+  formtext: { color: '#2563eb' },
+  formcheckbox: { color: '#2563eb' },
 };
 
 const CHECK_SEGMENTS = [[{ x: 18, y: 52 }, { x: 40, y: 74 }, { x: 84, y: 22 }]];
@@ -55,6 +67,8 @@ let objectCounter = 0;
 let selectedId = null;
 let currentTool = 'select';
 let currentDateFormat = 'MM/DD/YYYY';
+let currentMode = 'edit';
+let pagesMarkedForDeletion = new Set();
 
 let historyStack = [];
 let historyIndex = -1;
@@ -103,6 +117,9 @@ async function loadFile(f) {
   editorWorkspace.hidden = false;
   setStatus('');
   await renderAllPages();
+  currentMode = 'edit';
+  modeTabs.forEach(t => t.classList.toggle('active', t.dataset.mode === 'edit'));
+  applyModeVisibility();
   currentTool = 'select';
   updateToolButtons();
   resetHistory();
@@ -140,11 +157,15 @@ async function renderPage(pageNum) {
   canvas.style.height = cssHeight + 'px';
   await page.render({ canvasContext: canvas.getContext('2d'), viewport: renderViewport }).promise;
 
+  const textLayer = document.createElement('div');
+  textLayer.className = 'text-layer';
+
   const overlay = document.createElement('div');
   overlay.className = 'page-overlay';
 
   wrap.appendChild(tag);
   wrap.appendChild(canvas);
+  wrap.appendChild(textLayer);
   wrap.appendChild(overlay);
   pagesContainer.appendChild(wrap);
 
@@ -155,9 +176,22 @@ async function renderPage(pageNum) {
     displayScale,
     overlayEl: overlay,
     wrapEl: wrap,
+    canvasEl: canvas,
+    textLayerEl: textLayer,
   });
 
   overlay.addEventListener('mousedown', (e) => handleOverlayMouseDown(e, pageNum, overlay));
+
+  const textViewport = page.getViewport({ scale: displayScale });
+  textLayer.style.setProperty('--scale-factor', String(displayScale));
+  try {
+    const textContent = await page.getTextContent();
+    await pdfjsLib.renderTextLayer({ textContentSource: textContent, container: textLayer, viewport: textViewport }).promise;
+  } catch (err) {
+    console.error('Text layer render failed', err);
+  }
+
+  textLayer.addEventListener('click', (e) => handleTextLayerClick(e, pageNum, overlay, textLayer));
 }
 
 // ---------- Tool switching ----------
@@ -188,6 +222,135 @@ imageFileInput.addEventListener('change', async () => {
   placeImageObject('image', dataUrl, dims.width, dims.height);
   currentTool = 'select';
   updateToolButtons();
+});
+
+// ---------- Mode switching (Edit / Fill & Sign / Create Forms / Delete Pages) ----------
+
+modeTabs.forEach(tab => {
+  tab.addEventListener('click', () => switchMode(tab.dataset.mode));
+});
+applyModeVisibility();
+
+function switchMode(mode) {
+  if (mode === currentMode) return;
+  currentMode = mode;
+  modeTabs.forEach(t => t.classList.toggle('active', t.dataset.mode === mode));
+  currentTool = 'select';
+  deselectAll();
+  applyModeVisibility();
+  updateToolButtons();
+  if (mode === 'deletepages') renderDeletePagesGrid();
+}
+
+function applyModeVisibility() {
+  const showCanvas = currentMode !== 'deletepages';
+  // .editor-toolbar/.pages-container set `display: flex` as an author style, which beats the
+  // UA [hidden] rule regardless of specificity — so the `hidden` attribute alone does nothing
+  // here. Toggle `display` directly instead (see also dateFormatField's fix for the same issue).
+  canvasToolbar.style.display = showCanvas ? '' : 'none';
+  pagesContainer.style.display = showCanvas ? '' : 'none';
+  deletePagesView.hidden = showCanvas;
+  toolbarModeGroups.forEach(g => {
+    g.classList.toggle('mode-active', (g.dataset.modes || '').split(' ').includes(currentMode));
+  });
+}
+
+// ---------- Delete Pages mode ----------
+
+async function renderDeletePagesGrid() {
+  pagesMarkedForDeletion = new Set();
+  deletePagesGrid.innerHTML = '';
+  updateDeletePagesFooter();
+
+  for (let i = 1; i <= pdfjsDoc.numPages; i++) {
+    const page = await pdfjsDoc.getPage(i);
+    const baseViewport = page.getViewport({ scale: 1 });
+    const thumbScale = 150 / baseViewport.width;
+    const thumbViewport = page.getViewport({ scale: thumbScale });
+
+    const card = document.createElement('div');
+    card.className = 'page-card';
+
+    const thumbWrap = document.createElement('div');
+    thumbWrap.className = 'page-thumb-wrap';
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.round(thumbViewport.width);
+    canvas.height = Math.round(thumbViewport.height);
+    thumbWrap.appendChild(canvas);
+
+    const indexTag = document.createElement('span');
+    indexTag.className = 'page-index';
+    indexTag.textContent = i;
+
+    card.appendChild(thumbWrap);
+    card.appendChild(indexTag);
+    deletePagesGrid.appendChild(card);
+
+    card.addEventListener('click', () => {
+      if (pagesMarkedForDeletion.has(i)) pagesMarkedForDeletion.delete(i);
+      else pagesMarkedForDeletion.add(i);
+      card.classList.toggle('marked-delete', pagesMarkedForDeletion.has(i));
+      updateDeletePagesFooter();
+    });
+
+    await page.render({ canvasContext: canvas.getContext('2d'), viewport: thumbViewport }).promise;
+  }
+}
+
+function updateDeletePagesFooter() {
+  const n = pagesMarkedForDeletion.size;
+  const total = pdfjsDoc ? pdfjsDoc.numPages : 0;
+  if (n === 0) {
+    deletePagesCount.textContent = 'No pages selected';
+  } else if (n >= total) {
+    deletePagesCount.textContent = `${n} selected — can't delete every page`;
+  } else {
+    deletePagesCount.textContent = `${n} page${n === 1 ? '' : 's'} selected`;
+  }
+  deletePagesBtn.disabled = n === 0 || n >= total;
+}
+
+deletePagesBtn.addEventListener('click', async () => {
+  const n = pagesMarkedForDeletion.size;
+  if (n === 0) return;
+  const proceed = window.confirm(
+    `Delete ${n} page${n === 1 ? '' : 's'}? This clears any edits, signatures, or fields you've already placed on this document.`
+  );
+  if (!proceed) return;
+
+  deletePagesBtn.disabled = true;
+  setStatus('Deleting pages...');
+  try {
+    const bytes = await file.arrayBuffer();
+    const doc = await PDFDocument.load(bytes, { ignoreEncryption: true });
+    const indices = Array.from(pagesMarkedForDeletion).map(num => num - 1).sort((a, b) => b - a);
+    indices.forEach(idx => doc.removePage(idx));
+    const outBytes = await doc.save();
+
+    file = new File([outBytes], file.name || 'document.pdf', { type: 'application/pdf' });
+    pdfjsDoc = await pdfjsLib.getDocument({ data: outBytes }).promise;
+
+    objects.forEach(o => { if (o.sourceSpan) delete o.sourceSpan.dataset.covered; });
+    objects = [];
+    objectCounter = 0;
+    selectedId = null;
+
+    await renderAllPages();
+    resetHistory();
+
+    currentMode = 'edit';
+    modeTabs.forEach(t => t.classList.toggle('active', t.dataset.mode === 'edit'));
+    currentTool = 'select';
+    applyModeVisibility();
+    updateToolButtons();
+
+    setStatus(`Deleted ${n} page${n === 1 ? '' : 's'}.`);
+  } catch (err) {
+    console.error(err);
+    setStatus(`Failed to delete pages: ${err.message}`, true);
+  } finally {
+    deletePagesBtn.disabled = false;
+  }
 });
 
 // ---------- Format panel ----------
@@ -256,6 +419,10 @@ editorClearBtn.addEventListener('click', () => {
   objectCounter = 0;
   selectedId = null;
   currentTool = 'select';
+  currentMode = 'edit';
+  pagesMarkedForDeletion = new Set();
+  modeTabs.forEach(t => t.classList.toggle('active', t.dataset.mode === 'edit'));
+  applyModeVisibility();
   pagesContainer.innerHTML = '';
   updateToolButtons();
   editorWorkspace.hidden = true;
@@ -314,6 +481,16 @@ function handleOverlayMouseDown(e, pageNum, overlay) {
   if (currentTool === 'checkmark' || currentTool === 'cross') {
     e.preventDefault();
     const obj = createIconObject(pageNum, overlay, startX, startY, currentTool);
+    selectObject(obj.id);
+    currentTool = 'select';
+    updateToolButtons();
+    pushHistory();
+    return;
+  }
+
+  if (currentTool === 'formtext' || currentTool === 'formcheckbox') {
+    e.preventDefault();
+    const obj = createFormFieldObject(pageNum, overlay, startX, startY, currentTool);
     selectObject(obj.id);
     currentTool = 'select';
     updateToolButtons();
@@ -388,6 +565,88 @@ function formatDate(d, fmt) {
     case 'Month D, YYYY': return `${monthNames[d.getMonth()]} ${d.getDate()}, ${yyyy}`;
     default: return `${mm}/${dd}/${yyyy}`;
   }
+}
+
+// ---------- Existing-text editing (click text detected by pdf.js) ----------
+
+function handleTextLayerClick(e, pageNum, overlay, textLayer) {
+  if (currentMode !== 'edit' || currentTool !== 'select') return;
+  const span = e.target.closest('span');
+  if (!span || !textLayer.contains(span)) return;
+  if (!span.textContent || !span.textContent.trim()) return;
+  if (span.dataset.covered === 'true') return;
+  startTextEdit(span, pageNum, overlay);
+}
+
+function sampleBackgroundColor(pageInfo, overlayX, overlayY) {
+  try {
+    const canvas = pageInfo.canvasEl;
+    const scaleX = canvas.width / canvas.clientWidth;
+    const scaleY = canvas.height / canvas.clientHeight;
+    const px = Math.max(0, Math.min(canvas.width - 1, Math.round(overlayX * scaleX)));
+    const py = Math.max(0, Math.min(canvas.height - 1, Math.round(overlayY * scaleY)));
+    const data = canvas.getContext('2d').getImageData(px, py, 1, 1).data;
+    return `#${[data[0], data[1], data[2]].map(v => v.toString(16).padStart(2, '0')).join('')}`;
+  } catch (err) {
+    return '#ffffff';
+  }
+}
+
+function startTextEdit(span, pageNum, overlay) {
+  const pageInfo = pages.find(p => p.pageNum === pageNum);
+  if (!pageInfo) return;
+
+  const overlayRect = overlay.getBoundingClientRect();
+  const spanRect = span.getBoundingClientRect();
+  const x = spanRect.left - overlayRect.left;
+  const y = spanRect.top - overlayRect.top;
+  const width = Math.max(20, spanRect.width);
+  const height = Math.max(12, spanRect.height);
+  const fontSize = Math.round(parseFloat(getComputedStyle(span).fontSize)) || 14;
+  const originalText = span.textContent;
+
+  const coverColor = sampleBackgroundColor(pageInfo, x + 1, y + 1);
+
+  span.dataset.covered = 'true';
+
+  const id = 'obj-' + (++objectCounter);
+  const el = document.createElement('div');
+  el.className = 'edit-object edit-text text-edit';
+  el.contentEditable = 'true';
+  el.style.left = x + 'px';
+  el.style.top = y + 'px';
+  el.style.width = width + 'px';
+  el.style.height = height + 'px';
+  el.style.fontSize = fontSize + 'px';
+  el.style.color = '#000000';
+  el.style.background = coverColor;
+  el.textContent = originalText;
+  el.dataset.id = id;
+  overlay.appendChild(el);
+
+  const handle = document.createElement('div');
+  handle.className = 'resize-handle';
+  el.appendChild(handle);
+
+  const obj = {
+    id, pageNum, type: 'text',
+    x, y, width, height, fontSize, color: '#000000',
+    isTextEdit: true, coverColor, sourceSpan: span,
+    el,
+  };
+  objects.push(obj);
+  attachObjectHandlers(obj, handle);
+  selectObject(id);
+  pushHistory();
+
+  requestAnimationFrame(() => {
+    el.focus();
+    const range = document.createRange();
+    range.selectNodeContents(el);
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(range);
+  });
 }
 
 // ---------- Whiteout / Highlight (drag rectangle) ----------
@@ -505,6 +764,56 @@ function buildIconSvg(type, color) {
   path.setAttribute('stroke-linejoin', 'round');
   svg.appendChild(path);
   return svg;
+}
+
+// ---------- Create Forms: fillable field placeholders ----------
+
+function createFormFieldObject(pageNum, overlay, x, y, type) {
+  const id = 'obj-' + (++objectCounter);
+  const defaults = toolDefaults[type];
+  const isCheckbox = type === 'formcheckbox';
+  const width = isCheckbox ? 24 : 170;
+  const height = isCheckbox ? 24 : 30;
+
+  const el = document.createElement('div');
+  el.className = 'edit-object edit-formfield ' + (isCheckbox ? 'edit-formcheckbox' : 'edit-formtext');
+  el.style.left = (x - width / 2) + 'px';
+  el.style.top = (y - height / 2) + 'px';
+  el.style.width = width + 'px';
+  el.style.height = height + 'px';
+  el.style.borderColor = defaults.color;
+  el.style.background = hexToRgba(defaults.color, 0.08);
+  el.dataset.id = id;
+
+  const label = document.createElement('span');
+  label.className = 'formfield-label';
+  label.style.color = defaults.color;
+  label.textContent = isCheckbox ? '' : 'Text Field';
+  el.appendChild(label);
+  overlay.appendChild(el);
+
+  const handle = document.createElement('div');
+  handle.className = 'resize-handle';
+  handle.style.background = defaults.color;
+  el.appendChild(handle);
+
+  const obj = {
+    id, pageNum, type,
+    x: x - width / 2, y: y - height / 2, width, height,
+    color: defaults.color, fieldName: (isCheckbox ? 'Checkbox_' : 'TextField_') + id,
+    el, labelEl: label,
+  };
+  objects.push(obj);
+  attachObjectHandlers(obj, handle);
+  return obj;
+}
+
+function hexToRgba(hex, alpha) {
+  const clean = hex.replace('#', '');
+  const r = parseInt(clean.substring(0, 2), 16);
+  const g = parseInt(clean.substring(2, 4), 16);
+  const b = parseInt(clean.substring(4, 6), 16);
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }
 
 // ---------- Freehand draw ----------
@@ -748,6 +1057,7 @@ function layoutLineObject(obj) {
 
 function attachLineHandle(obj, handleEl, isStart) {
   handleEl.addEventListener('mousedown', (e) => {
+    if (currentTool !== 'select') return;
     e.stopPropagation();
     selectObject(obj.id);
     const overlay = pages.find(p => p.pageNum === obj.pageNum).overlayEl;
@@ -851,6 +1161,11 @@ function placeImageObject(type, dataUrl, naturalWidth, naturalHeight) {
 
 function attachObjectHandlers(obj, resizeHandle) {
   obj.el.addEventListener('mousedown', (e) => {
+    // While a placement/drawing tool is active, existing objects must not swallow the click —
+    // otherwise clicking on top of something already on the page silently selects/drags it
+    // instead of placing the new item the active tool intends. Only the Select tool interacts
+    // with existing objects; other tools let the click bubble up to handleOverlayMouseDown.
+    if (currentTool !== 'select') return;
     if (e.target.classList && (e.target.classList.contains('resize-handle') || e.target.classList.contains('line-handle'))) return;
     e.stopPropagation();
     selectObject(obj.id);
@@ -861,6 +1176,7 @@ function attachObjectHandlers(obj, resizeHandle) {
 
   if (obj.type === 'text' || obj.type === 'date') {
     obj.el.addEventListener('dblclick', (e) => {
+      if (currentTool !== 'select') return;
       e.stopPropagation();
       obj.el.contentEditable = 'true';
       obj.el.focus();
@@ -868,7 +1184,7 @@ function attachObjectHandlers(obj, resizeHandle) {
 
     obj.el.addEventListener('blur', () => {
       obj.el.contentEditable = 'false';
-      if (obj.el.textContent.trim() === '') {
+      if (!obj.isTextEdit && obj.el.textContent.trim() === '') {
         deleteObject(obj.id);
       }
       pushHistory();
@@ -877,6 +1193,7 @@ function attachObjectHandlers(obj, resizeHandle) {
 
   if (resizeHandle) {
     resizeHandle.addEventListener('mousedown', (e) => {
+      if (currentTool !== 'select') return;
       e.stopPropagation();
       selectObject(obj.id);
       startResize(obj, e);
@@ -952,6 +1269,10 @@ function applyObjectStyle(obj) {
     obj.pathEl.setAttribute('stroke', obj.color);
     obj.pathEl.setAttribute('stroke-width', String(obj.strokeWidth));
     layoutLineObject(obj);
+  } else if (obj.type === 'formtext' || obj.type === 'formcheckbox') {
+    obj.el.style.borderColor = obj.color;
+    obj.el.style.background = hexToRgba(obj.color, 0.08);
+    obj.labelEl.style.color = obj.color;
   }
 }
 
@@ -1010,6 +1331,7 @@ function updateToolbarForSelection() {
 function deleteObject(id) {
   const idx = objects.findIndex(o => o.id === id);
   if (idx === -1) return;
+  if (objects[idx].sourceSpan) delete objects[idx].sourceSpan.dataset.covered;
   objects[idx].el.remove();
   objects.splice(idx, 1);
   if (selectedId === id) {
@@ -1020,7 +1342,7 @@ function deleteObject(id) {
 
 function updateToolButtons() {
   toolButtons.forEach(btn => btn.classList.toggle('active', btn.dataset.tool === currentTool));
-  pagesContainer.className = 'pages-container tool-' + currentTool;
+  pagesContainer.className = 'pages-container mode-' + currentMode + ' tool-' + currentTool;
   updateToolbarForSelection();
 }
 
@@ -1067,6 +1389,14 @@ function openSignModal(mode) {
   signUploadDataUrl = null;
   signUploadPreview.hidden = true;
   signUploadPreview.src = '';
+
+  const canSave = hasStorageConsent();
+  saveSignatureCheck.checked = canSave;
+  saveSignatureCheck.disabled = !canSave;
+  saveSignatureCheck.closest('label').title = canSave
+    ? ''
+    : "You've declined local storage in the cookie notice, so this won't be saved for reuse.";
+
   renderSavedSignatures();
   signModal.hidden = false;
 }
@@ -1166,12 +1496,17 @@ async function handleSignUploadFile(f) {
 function savedSigStorageKey() {
   return 'inkbind.saved.' + signModalMode;
 }
+function hasStorageConsent() {
+  return typeof window.inkbindHasStorageConsent !== 'function' || window.inkbindHasStorageConsent();
+}
 function getSavedSignatures() {
+  if (!hasStorageConsent()) return [];
   try {
     return JSON.parse(localStorage.getItem(savedSigStorageKey()) || '[]');
   } catch { return []; }
 }
 function setSavedSignatures(list) {
+  if (!hasStorageConsent()) return;
   try { localStorage.setItem(savedSigStorageKey(), JSON.stringify(list.slice(0, 6))); } catch {}
 }
 function addSavedSignature(dataUrl) {
@@ -1355,18 +1690,30 @@ function rebuildObject(data) {
 
   if (data.type === 'text' || data.type === 'date') {
     const el = document.createElement('div');
-    el.className = 'edit-object edit-text';
+    el.className = 'edit-object edit-text' + (data.isTextEdit ? ' text-edit' : '');
     el.contentEditable = 'false';
     el.style.left = data.x + 'px';
     el.style.top = data.y + 'px';
     el.style.fontSize = data.fontSize + 'px';
     el.style.color = data.color;
+    if (data.isTextEdit) {
+      el.style.width = data.width + 'px';
+      el.style.height = data.height + 'px';
+      el.style.background = data.coverColor;
+      if (data.sourceSpan) data.sourceSpan.dataset.covered = 'true';
+    }
     el.textContent = data.text || '';
     el.dataset.id = data.id;
     overlay.appendChild(el);
+    let handle = null;
+    if (data.isTextEdit) {
+      handle = document.createElement('div');
+      handle.className = 'resize-handle';
+      el.appendChild(handle);
+    }
     const obj = Object.assign({}, data, { el });
     objects.push(obj);
-    attachObjectHandlers(obj);
+    attachObjectHandlers(obj, handle);
     return;
   }
 
@@ -1427,6 +1774,33 @@ function rebuildObject(data) {
     handle.className = 'resize-handle';
     el.appendChild(handle);
     const obj = Object.assign({}, data, { el });
+    objects.push(obj);
+    attachObjectHandlers(obj, handle);
+    return;
+  }
+
+  if (data.type === 'formtext' || data.type === 'formcheckbox') {
+    const isCheckbox = data.type === 'formcheckbox';
+    const el = document.createElement('div');
+    el.className = 'edit-object edit-formfield ' + (isCheckbox ? 'edit-formcheckbox' : 'edit-formtext');
+    el.style.left = data.x + 'px';
+    el.style.top = data.y + 'px';
+    el.style.width = data.width + 'px';
+    el.style.height = data.height + 'px';
+    el.style.borderColor = data.color;
+    el.style.background = hexToRgba(data.color, 0.08);
+    el.dataset.id = data.id;
+    const label = document.createElement('span');
+    label.className = 'formfield-label';
+    label.style.color = data.color;
+    label.textContent = isCheckbox ? '' : 'Text Field';
+    el.appendChild(label);
+    overlay.appendChild(el);
+    const handle = document.createElement('div');
+    handle.className = 'resize-handle';
+    handle.style.background = data.color;
+    el.appendChild(handle);
+    const obj = Object.assign({}, data, { el, labelEl: label });
     objects.push(obj);
     attachObjectHandlers(obj, handle);
     return;
@@ -1509,6 +1883,8 @@ async function exportPdf() {
     const font = await workDoc.embedFont(StandardFonts.Helvetica);
     const pdfPages = workDoc.getPages();
     const imageCache = new Map();
+    const hasFormFields = objects.some(o => o.type === 'formtext' || o.type === 'formcheckbox');
+    const form = hasFormFields ? workDoc.getForm() : null;
 
     for (const obj of objects) {
       const pageInfo = pages.find(p => p.pageNum === obj.pageNum);
@@ -1522,6 +1898,9 @@ async function exportPdf() {
       } else if (obj.type === 'highlight') {
         drawScaledRect(pdfPage, pageInfo, obj, { color: hexToRgb(obj.color), opacity: HIGHLIGHT_OPACITY, blendMode: BlendMode.Multiply });
       } else if (obj.type === 'text' || obj.type === 'date') {
+        if (obj.isTextEdit) {
+          drawScaledRect(pdfPage, pageInfo, obj, { color: hexToRgb(obj.coverColor) });
+        }
         const text = (obj.el.textContent || '').replace(/\n+$/, '');
         if (!text.trim()) continue;
         const fontSizePdf = obj.fontSize / scale;
@@ -1579,6 +1958,25 @@ async function exportPdf() {
           y: pageInfo.pdfHeight - yTop - h,
           width: w,
           height: h,
+        });
+      } else if (obj.type === 'formtext') {
+        const x = obj.x / scale, w = obj.width / scale, h = obj.height / scale, yTop = obj.y / scale;
+        const tf = form.createTextField(obj.fieldName);
+        tf.addToPage(pdfPage, {
+          x, y: pageInfo.pdfHeight - yTop - h, width: w, height: h,
+          borderWidth: 1,
+          borderColor: hexToRgb(obj.color),
+          backgroundColor: rgb(1, 1, 1),
+        });
+        tf.setFontSize(Math.max(8, Math.round(h * 0.55)));
+      } else if (obj.type === 'formcheckbox') {
+        const x = obj.x / scale, w = obj.width / scale, h = obj.height / scale, yTop = obj.y / scale;
+        const cb = form.createCheckBox(obj.fieldName);
+        cb.addToPage(pdfPage, {
+          x, y: pageInfo.pdfHeight - yTop - h, width: w, height: h,
+          borderWidth: 1,
+          borderColor: hexToRgb(obj.color),
+          backgroundColor: rgb(1, 1, 1),
         });
       }
     }
