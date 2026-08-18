@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Convert PDF – Inkbind</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="app">
+    <header>
+      <a class="home-link" href="index.html">&larr; All tools</a>
+      <h1>Convert from PDF</h1>
+      <p class="subtitle">Turn a PDF into Excel, JPG, PowerPoint, Text or Word — all in your browser.</p>
+    </header>
+
+    <main class="workspace">
+      <div class="grid-column">
+        <div id="dropzone" class="dropzone">
+          <input type="file" id="fileInput" accept="application/pdf" hidden>
+          <div class="dropzone-content">
+            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <path d="M12 3v12m0 0l-4-4m4 4l4-4M4 17v2a2 2 0 002 2h12a2 2 0 002-2v-2" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+            <p><strong>Click to select</strong> or drag &amp; drop a PDF file here</p>
+          </div>
+        </div>
+
+        <div class="mode-tabs">
+          <button class="mode-tab active" data-mode="excel">PDF to Excel</button>
+          <button class="mode-tab" data-mode="jpg">PDF to JPG</button>
+          <button class="mode-tab" data-mode="ppt">PDF to PowerPoint</button>
+          <button class="mode-tab" data-mode="text">PDF to Text</button>
+          <button class="mode-tab" data-mode="word">PDF to Word</button>
+        </div>
+
+        <p id="modeHelp" class="mode-help"></p>
+
+        <div id="modeOptions" class="mode-options" hidden></div>
+
+        <div id="pageGrid" class="page-grid"></div>
+
+        <div class="actions">
+          <button id="clearBtn" class="btn btn-secondary" disabled>Clear</button>
+          <button id="actionBtn" class="btn btn-primary" disabled>Convert to Excel</button>
+        </div>
+
+        <p id="status" class="status"></p>
+      </div>
+
+      <aside id="previewPanel" class="preview-panel">
+        <p id="previewEmpty" class="preview-empty">Click a page to preview it here.</p>
+        <div id="previewContent" class="preview-content" hidden>
+          <div id="previewCanvasWrap" class="preview-canvas-wrap">
+            <div id="previewSpinner" class="spinner" hidden></div>
+            <img id="previewImg" alt="Page preview">
+            <div id="magnifierGlass" class="magnifier-glass" hidden></div>
+          </div>
+          <p id="previewMeta" class="preview-meta"></p>
+        </div>
+      </aside>
+    </main>
+
+    <footer class="site-footer">
+      <p class="footer-line">
+        &copy; 2026 The Inkbind. All rights reserved.
+        <span class="footer-sep">&middot;</span>
+        <a href="privacy.html">Privacy &amp; Cookie Policy</a>
+        <span class="footer-sep">&middot;</span>
+        Designed &amp; Developed by <a href="https://www.linkedin.com/in/sajjadshahpoor" target="_blank" rel="noopener noreferrer">Sajjad</a>
+      </p>
+    </footer>
+  </div>
+
+  <div id="imageResultModal" class="modal-overlay" hidden>
+    <div class="modal">
+      <div class="modal-header">
+        <h2>Review images</h2>
+        <button id="imageModalCloseBtn" class="modal-close" aria-label="Close">&times;</button>
+      </div>
+      <p id="imageModalSubtitle" class="modal-subtitle">Check the images below before downloading.</p>
+      <div id="imageResultList" class="result-file-list modal-grid"></div>
+      <div class="modal-footer">
+        <button id="imageModalBackBtn" class="btn btn-secondary">Back to editing</button>
+        <button id="imageModalDownloadBtn" class="btn btn-primary">Download all (.zip)</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="lib/pdf.min.js"></script>
+  <script src="lib/jszip.min.js"></script>
+  <script src="lib/docx.min.js"></script>
+  <script src="lib/pptxgen.min.js"></script>
+  <script src="lib/xlsx.min.js"></script>
+  <script src="convert.js"></script>
+  <script src="cookie-consent.js"></script>
+</body>
+</html>
