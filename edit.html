@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Edit &amp; Sign PDF – Inkbind</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="app editor-app">
+    <header>
+      <a class="home-link" href="index.html">&larr; All tools</a>
+      <h1>Edit &amp; Sign PDF</h1>
+      <p class="subtitle">Add text, sign, initial, date-stamp, whiteout, highlight, draw and stamp your PDF, then download.</p>
+    </header>
+
+    <div id="editorUpload" class="dropzone">
+      <input type="file" id="editorFileInput" accept="application/pdf" hidden>
+      <div class="dropzone-content">
+        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+          <path d="M12 3v12m0 0l-4-4m4 4l4-4M4 17v2a2 2 0 002 2h12a2 2 0 002-2v-2" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        <p><strong>Click to select</strong> or drag &amp; drop a PDF file here</p>
+      </div>
+    </div>
+
+    <div id="editorWorkspace" class="editor-workspace" hidden>
+      <div class="editor-toolbar">
+        <div class="toolbar-group">
+          <button id="toolSelect" class="tool-btn active" data-tool="select" title="Select &amp; move">Select</button>
+        </div>
+
+        <div class="toolbar-sep"></div>
+
+        <div class="toolbar-group">
+          <button id="toolText" class="tool-btn" data-tool="text" title="Click a page to add text">+ Text</button>
+          <button id="toolDate" class="tool-btn" data-tool="date" title="Click a page to add today's date">Date</button>
+        </div>
+
+        <div class="toolbar-sep"></div>
+
+        <div class="toolbar-group">
+          <button id="toolSignature" class="tool-btn" data-tool="signature" title="Add your signature">Signature</button>
+          <button id="toolInitials" class="tool-btn" data-tool="initials" title="Add your initials">Initials</button>
+        </div>
+
+        <div class="toolbar-sep"></div>
+
+        <div class="toolbar-group">
+          <button id="toolCheckmark" class="tool-btn" data-tool="checkmark" title="Click a page to add a checkmark">Checkmark</button>
+          <button id="toolCross" class="tool-btn" data-tool="cross" title="Click a page to add a cross">Cross</button>
+          <button id="toolImage" class="tool-btn" data-tool="image" title="Insert an image">Image</button>
+        </div>
+
+        <div class="toolbar-sep"></div>
+
+        <div class="toolbar-group">
+          <button id="toolWhiteout" class="tool-btn" data-tool="whiteout" title="Drag over content to cover it">Whiteout</button>
+          <button id="toolHighlight" class="tool-btn" data-tool="highlight" title="Drag over content to highlight it">Highlight</button>
+        </div>
+
+        <div class="toolbar-sep"></div>
+
+        <div class="toolbar-group">
+          <button id="toolDraw" class="tool-btn" data-tool="draw" title="Freehand drawing">Draw</button>
+          <button id="toolLine" class="tool-btn" data-tool="line" title="Drag to draw a straight line">Line</button>
+          <button id="toolArrow" class="tool-btn" data-tool="arrow" title="Drag to draw an arrow">Arrow</button>
+        </div>
+
+        <div class="toolbar-sep"></div>
+
+        <div class="toolbar-group format-group">
+          <label class="toolbar-field" id="fontSizeField">Size
+            <input id="fontSizeInput" type="number" min="6" max="120" value="16" disabled>
+          </label>
+          <label class="toolbar-field" id="strokeWidthField">Width
+            <input id="strokeWidthInput" type="number" min="1" max="30" value="3" disabled>
+          </label>
+          <label class="toolbar-field" id="colorField">Color
+            <input id="colorInput" type="color" value="#1f2430" disabled>
+          </label>
+          <label class="toolbar-field" id="dateFormatField" hidden>Format
+            <select id="dateFormatInput">
+              <option value="MM/DD/YYYY">MM/DD/YYYY</option>
+              <option value="DD/MM/YYYY">DD/MM/YYYY</option>
+              <option value="YYYY-MM-DD">YYYY-MM-DD</option>
+              <option value="Month D, YYYY">Month D, YYYY</option>
+            </select>
+          </label>
+        </div>
+
+        <button id="deleteObjectBtn" class="btn btn-secondary" disabled>Delete</button>
+        <button id="undoBtn" class="btn btn-secondary" disabled title="Undo">&#8630;</button>
+        <button id="redoBtn" class="btn btn-secondary" disabled title="Redo">&#8631;</button>
+
+        <div class="toolbar-spacer"></div>
+
+        <button id="editorClearBtn" class="btn btn-secondary">Start over</button>
+        <button id="editorDownloadBtn" class="btn btn-primary">Download PDF</button>
+      </div>
+
+      <div id="pagesContainer" class="pages-container"></div>
+    </div>
+
+    <p id="editorStatus" class="status"></p>
+  </div>
+
+  <input type="file" id="imageFileInput" accept="image/png,image/jpeg" hidden>
+
+  <div id="signModal" class="modal-overlay" hidden>
+    <div class="modal sign-modal">
+      <div class="modal-header">
+        <h2 id="signModalTitle">Add your signature</h2>
+        <button id="signModalCloseBtn" class="modal-close" aria-label="Close">&times;</button>
+      </div>
+
+      <div class="sign-tabs">
+        <button class="sign-tab active" data-tab="draw">Draw</button>
+        <button class="sign-tab" data-tab="type">Type</button>
+        <button class="sign-tab" data-tab="upload">Upload</button>
+      </div>
+
+      <div class="sign-panel" data-panel="draw">
+        <canvas id="signDrawCanvas" width="600" height="200"></canvas>
+        <div class="sign-panel-actions">
+          <label class="toolbar-field">Ink
+            <input id="signDrawColor" type="color" value="#1f2430">
+          </label>
+          <button id="signDrawClearBtn" class="btn btn-secondary">Clear</button>
+        </div>
+      </div>
+
+      <div class="sign-panel" data-panel="type" hidden>
+        <input id="signTypeInput" type="text" placeholder="Type your name" maxlength="60">
+        <div class="sign-type-fonts">
+          <button class="sign-font-btn active" data-font="'Segoe Script','Bradley Hand',cursive" title="Style 1">Style 1</button>
+          <button class="sign-font-btn" data-font="'Lucida Handwriting','Brush Script MT',cursive" title="Style 2">Style 2</button>
+          <button class="sign-font-btn" data-font="'Monotype Corsiva','Comic Sans MS',cursive" title="Style 3">Style 3</button>
+        </div>
+        <div id="signTypePreview" class="sign-type-preview"></div>
+        <label class="toolbar-field">Ink
+          <input id="signTypeColor" type="color" value="#1f2430">
+        </label>
+      </div>
+
+      <div class="sign-panel" data-panel="upload" hidden>
+        <div id="signUploadDrop" class="dropzone sign-upload-drop">
+          <input type="file" id="signUploadInput" accept="image/png,image/jpeg" hidden>
+          <div class="dropzone-content">
+            <p><strong>Click to select</strong> or drag &amp; drop an image</p>
+          </div>
+        </div>
+        <img id="signUploadPreview" class="sign-upload-preview" hidden>
+      </div>
+
+      <div id="savedSignatures" class="saved-signatures" hidden>
+        <p class="saved-signatures-label">Saved</p>
+        <div id="savedSignaturesList" class="saved-signatures-list"></div>
+      </div>
+
+      <div class="modal-footer">
+        <label class="toolbar-field save-sig-field">
+          <input type="checkbox" id="saveSignatureCheck" checked>
+          Save for reuse
+        </label>
+        <button id="signModalCancelBtn" class="btn btn-secondary">Cancel</button>
+        <button id="signModalInsertBtn" class="btn btn-primary">Insert</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="lib/pdf-lib.min.js"></script>
+  <script src="lib/pdf.min.js"></script>
+  <script src="edit.js"></script>
+</body>
+</html>

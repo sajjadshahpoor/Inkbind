@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Merge PDFs – Inkbind</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="app">
+    <header>
+      <a class="home-link" href="index.html">&larr; All tools</a>
+      <h1>PDF Merger</h1>
+      <p class="subtitle">Upload PDFs, preview every page as a thumbnail, drag to reorder, then merge.</p>
+    </header>
+
+    <main class="workspace">
+      <div class="grid-column">
+        <div id="dropzone" class="dropzone">
+          <input type="file" id="fileInput" accept="application/pdf" multiple hidden>
+          <div class="dropzone-content">
+            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <path d="M12 3v12m0 0l-4-4m4 4l4-4M4 17v2a2 2 0 002 2h12a2 2 0 002-2v-2" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+            <p><strong>Click to select</strong> or drag &amp; drop PDF files here</p>
+          </div>
+        </div>
+
+        <div id="pageGrid" class="page-grid"></div>
+
+        <div class="actions">
+          <button id="clearBtn" class="btn btn-secondary" disabled>Clear all</button>
+          <button id="mergeBtn" class="btn btn-primary" disabled>Preview Merge</button>
+        </div>
+
+        <p id="status" class="status"></p>
+      </div>
+
+      <aside id="previewPanel" class="preview-panel">
+        <p id="previewEmpty" class="preview-empty">Click a page to preview it here.</p>
+        <div id="previewContent" class="preview-content" hidden>
+          <div id="previewCanvasWrap" class="preview-canvas-wrap">
+            <div id="previewSpinner" class="spinner" hidden></div>
+            <img id="previewImg" alt="Page preview">
+            <div id="magnifierGlass" class="magnifier-glass" hidden></div>
+          </div>
+          <p id="previewMeta" class="preview-meta"></p>
+        </div>
+      </aside>
+    </main>
+  </div>
+
+  <div id="mergePreviewModal" class="modal-overlay" hidden>
+    <div class="modal">
+      <div class="modal-header">
+        <h2>Review merged PDF</h2>
+        <button id="modalCloseBtn" class="modal-close" aria-label="Close">&times;</button>
+      </div>
+      <p id="modalSubtitle" class="modal-subtitle">Check every page before downloading. Go back if something looks wrong.</p>
+      <div id="mergePreviewGrid" class="page-grid modal-grid"></div>
+      <div class="modal-footer">
+        <button id="modalBackBtn" class="btn btn-secondary">Back to editing</button>
+        <button id="modalDownloadBtn" class="btn btn-primary">Download PDF</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="lib/pdf-lib.min.js"></script>
+  <script src="lib/pdf.min.js"></script>
+  <script src="merge.js"></script>
+</body>
+</html>
