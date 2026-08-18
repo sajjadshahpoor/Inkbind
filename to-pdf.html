@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Convert to PDF – Inkbind</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="app">
+    <header>
+      <a class="home-link" href="index.html">&larr; All tools</a>
+      <h1>Convert to PDF</h1>
+      <p class="subtitle">Turn HTML, JPG/PNG images, or a Word document into a PDF — all in your browser.</p>
+    </header>
+
+    <main class="workspace">
+      <div class="grid-column">
+        <div class="mode-tabs">
+          <button class="mode-tab active" data-mode="html">HTML to PDF</button>
+          <button class="mode-tab" data-mode="jpg">JPG to PDF</button>
+          <button class="mode-tab" data-mode="word">Word to PDF</button>
+        </div>
+
+        <p id="modeHelp" class="mode-help"></p>
+
+        <div id="panelHtml" class="mode-panel">
+          <div class="field-row">
+            <label for="htmlFileInput" class="btn-chip">Load .html file&hellip;</label>
+            <input type="file" id="htmlFileInput" accept=".html,text/html" hidden>
+            <span class="field-hint">or paste HTML source below</span>
+          </div>
+          <textarea id="htmlTextarea" class="html-textarea" placeholder="<h1>Hello</h1>&#10;<p>Paste or write HTML here&hellip;</p>"></textarea>
+        </div>
+
+        <div id="panelJpg" class="mode-panel" hidden>
+          <div id="jpgDropzone" class="dropzone">
+            <input type="file" id="jpgFileInput" accept="image/jpeg,image/png" multiple hidden>
+            <div class="dropzone-content">
+              <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                <path d="M12 3v12m0 0l-4-4m4 4l4-4M4 17v2a2 2 0 002 2h12a2 2 0 002-2v-2" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+              <p><strong>Click to select</strong> or drag &amp; drop JPG/PNG images here</p>
+            </div>
+          </div>
+          <div id="jpgFileList" class="page-grid"></div>
+        </div>
+
+        <div id="panelWord" class="mode-panel" hidden>
+          <div id="wordDropzone" class="dropzone">
+            <input type="file" id="wordFileInput" accept=".docx" hidden>
+            <div class="dropzone-content">
+              <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                <path d="M12 3v12m0 0l-4-4m4 4l4-4M4 17v2a2 2 0 002 2h12a2 2 0 002-2v-2" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+              <p><strong>Click to select</strong> or drag &amp; drop a .docx file here</p>
+            </div>
+          </div>
+          <p id="wordFileInfo" class="field-hint"></p>
+        </div>
+
+        <div id="modeOptions" class="mode-options" hidden></div>
+
+        <div class="actions">
+          <button id="clearBtn" class="btn btn-secondary" disabled>Clear</button>
+          <button id="actionBtn" class="btn btn-primary" disabled>Convert to PDF</button>
+        </div>
+
+        <p id="status" class="status"></p>
+      </div>
+    </main>
+
+    <footer class="site-footer">
+      <p class="footer-line">
+        &copy; 2026 The Inkbind. All rights reserved.
+        <span class="footer-sep">&middot;</span>
+        <a href="privacy.html">Privacy &amp; Cookie Policy</a>
+        <span class="footer-sep">&middot;</span>
+        Designed &amp; Developed by <a href="https://www.linkedin.com/in/sajjadshahpoor" target="_blank" rel="noopener noreferrer">Sajjad</a>
+      </p>
+    </footer>
+  </div>
+
+  <div id="resultModal" class="modal-overlay" hidden>
+    <div class="modal">
+      <div class="modal-header">
+        <h2>Review result</h2>
+        <button id="resultModalCloseBtn" class="modal-close" aria-label="Close">&times;</button>
+      </div>
+      <p id="resultModalSubtitle" class="modal-subtitle">Check every page before downloading. Go back if something looks wrong.</p>
+      <div id="resultGrid" class="page-grid modal-grid"></div>
+      <div class="modal-footer">
+        <button id="resultModalBackBtn" class="btn btn-secondary">Back to editing</button>
+        <button id="resultModalDownloadBtn" class="btn btn-primary">Download PDF</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="lib/pdf-lib.min.js"></script>
+  <script src="lib/pdf.min.js"></script>
+  <script src="lib/html2canvas.min.js"></script>
+  <script src="lib/mammoth.browser.min.js"></script>
+  <script src="to-pdf.js"></script>
+  <script src="cookie-consent.js"></script>
+</body>
+</html>

@@ -642,6 +642,26 @@ h1 {
   text-decoration: underline;
 }
 
+/* ---- Convert to PDF ---- */
+
+.html-textarea {
+  width: 100%;
+  min-height: 260px;
+  margin-top: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--text);
+  resize: vertical;
+}
+
+.mode-panel + .mode-options {
+  margin-top: 16px;
+}
+
 .btn {
   border: none;
   border-radius: 8px;
