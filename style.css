@@ -310,6 +310,35 @@ h1 {
   margin-top: 20px;
 }
 
+.grid-column > .mode-tabs {
+  margin-top: 22px;
+  padding: 0 0 0;
+}
+
+.mode-help {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin: 12px 0 0;
+}
+
+.mode-panel .page-grid {
+  margin-top: 16px;
+}
+
+.file-reverse-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  font-size: 11px;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.file-reverse-toggle input {
+  cursor: pointer;
+}
+
 .btn {
   border: none;
   border-radius: 8px;

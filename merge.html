@@ -11,7 +11,7 @@
     <header>
       <a class="home-link" href="index.html">&larr; All tools</a>
       <h1>PDF Merger</h1>
-      <p class="subtitle">Upload PDFs, preview every page as a thumbnail, drag to reorder, then merge.</p>
+      <p class="subtitle">Merge whole documents, alternate &amp; mix pages from double-sided scans, or organize pages one by one.</p>
     </header>
 
     <main class="workspace">
@@ -26,7 +26,25 @@
           </div>
         </div>
 
-        <div id="pageGrid" class="page-grid"></div>
+        <div class="mode-tabs">
+          <button class="mode-tab active" data-mode="merge">Merge</button>
+          <button class="mode-tab" data-mode="mix">Alternate &amp; Mix</button>
+          <button class="mode-tab" data-mode="organize">Organize</button>
+        </div>
+
+        <p id="modeHelp" class="mode-help"></p>
+
+        <div id="panelMerge" class="mode-panel">
+          <div id="mergeFileList" class="page-grid"></div>
+        </div>
+
+        <div id="panelMix" class="mode-panel" hidden>
+          <div id="mixFileList" class="page-grid"></div>
+        </div>
+
+        <div id="panelOrganize" class="mode-panel" hidden>
+          <div id="pageGrid" class="page-grid"></div>
+        </div>
 
         <div class="actions">
           <button id="clearBtn" class="btn btn-secondary" disabled>Clear all</button>

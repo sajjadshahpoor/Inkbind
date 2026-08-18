@@ -8,6 +8,13 @@ const MAGNIFIER_SIZE = 170;
 
 const dropzone = document.getElementById('dropzone');
 const fileInput = document.getElementById('fileInput');
+const modeTabs = document.querySelectorAll('.mode-tab');
+const modeHelpEl = document.getElementById('modeHelp');
+const panelMerge = document.getElementById('panelMerge');
+const panelMix = document.getElementById('panelMix');
+const panelOrganize = document.getElementById('panelOrganize');
+const mergeFileListEl = document.getElementById('mergeFileList');
+const mixFileListEl = document.getElementById('mixFileList');
 const pageGridEl = document.getElementById('pageGrid');
 const mergeBtn = document.getElementById('mergeBtn');
 const clearBtn = document.getElementById('clearBtn');
@@ -25,11 +32,28 @@ const modalCloseBtn = document.getElementById('modalCloseBtn');
 const modalBackBtn = document.getElementById('modalBackBtn');
 const modalDownloadBtn = document.getElementById('modalDownloadBtn');
 
-let pages = []; // { id, file, pageIndex (0-based in source file), name, thumbUrl, previewUrl }
+const MODE_HELP = {
+  merge: 'Files are combined whole, in the order below. Drag to reorder documents, then merge.',
+  mix: 'Pages are interleaved one-by-one across files in the order below. Toggle "Reverse pages" on a file to flip its order before mixing — handy for double-sided scans.',
+  organize: 'Every page from every file is listed below. Drag to reorder, rotate, or remove individual pages.',
+};
+
+let files = []; // { id, file, pageCount, name, thumbUrl, previewUrl, pageIndex: 0, rotation: 0 }
+let mergeOrder = []; // array of file ids, in the order they'll be concatenated
+let mixOrder = []; // array of file ids, in the order they'll be interleaved
+let mixReversed = new Set(); // file ids whose pages should be taken back-to-front when mixing
+let pages = []; // { id, file, pageIndex (0-based in source file), name, thumbUrl, previewUrl, rotation }
+
+let activeMode = 'merge'; // 'merge' | 'mix' | 'organize'
+let dragSrcFileId = null;
 let dragSrcId = null;
-let selectedId = null;
+let selectedMergeFileId = null;
+let selectedMixFileId = null;
+let selectedPageId = null;
 let previewToken = 0;
 let lastMergedBytes = null;
+let lastMergedFilename = 'merged.pdf';
+let lastMergedPageCount = 0;
 const pdfjsDocCache = new Map(); // File -> pdfjs PDFDocumentProxy
 
 dropzone.addEventListener('click', () => fileInput.click());
@@ -54,15 +78,25 @@ fileInput.addEventListener('change', () => {
   fileInput.value = '';
 });
 
-clearBtn.addEventListener('click', () => {
-  pages = [];
-  pdfjsDocCache.clear();
-  selectedId = null;
-  clearPreview();
-  render();
+modeTabs.forEach((btn) => {
+  btn.addEventListener('click', () => setActiveMode(btn.dataset.mode));
 });
 
-mergeBtn.addEventListener('click', mergeFiles);
+clearBtn.addEventListener('click', () => {
+  files = [];
+  mergeOrder = [];
+  mixOrder = [];
+  mixReversed.clear();
+  pages = [];
+  pdfjsDocCache.clear();
+  selectedMergeFileId = null;
+  selectedMixFileId = null;
+  selectedPageId = null;
+  clearPreview();
+  renderAll();
+});
+
+mergeBtn.addEventListener('click', runActiveModeMerge);
 
 modalCloseBtn.addEventListener('click', closeMergePreview);
 modalBackBtn.addEventListener('click', closeMergePreview);
@@ -75,8 +109,8 @@ document.addEventListener('keydown', (e) => {
 
 modalDownloadBtn.addEventListener('click', () => {
   if (lastMergedBytes) {
-    downloadBlob(lastMergedBytes, 'merged.pdf');
-    setStatus(`Downloaded. Merged ${pages.length} page${pages.length === 1 ? '' : 's'}.`);
+    downloadBlob(lastMergedBytes, lastMergedFilename);
+    setStatus(`Downloaded. Merged ${lastMergedPageCount} page${lastMergedPageCount === 1 ? '' : 's'}.`);
   }
   closeMergePreview();
 });
@@ -114,6 +148,17 @@ function moveMagnifier(e) {
   magnifierGlass.style.backgroundPosition = `-${x * MAGNIFIER_ZOOM - half}px -${y * MAGNIFIER_ZOOM - half}px`;
 }
 
+function setActiveMode(mode) {
+  activeMode = mode;
+  modeTabs.forEach((btn) => btn.classList.toggle('active', btn.dataset.mode === mode));
+  panelMerge.hidden = mode !== 'merge';
+  panelMix.hidden = mode !== 'mix';
+  panelOrganize.hidden = mode !== 'organize';
+  modeHelpEl.textContent = MODE_HELP[mode];
+  clearPreview();
+  updateActionAvailability();
+}
+
 async function addFiles(fileListArg) {
   const pdfFiles = Array.from(fileListArg).filter(f => f.type === 'application/pdf' || f.name.toLowerCase().endsWith('.pdf'));
   if (pdfFiles.length === 0) {
@@ -122,14 +167,19 @@ async function addFiles(fileListArg) {
   }
   setStatus('');
   for (const file of pdfFiles) {
-    await addFilePages(file);
+    await addFile(file);
   }
-  if (selectedId === null && pages.length > 0) {
-    selectPage(pages[0].id);
+
+  renderAll();
+
+  if (files.length > 0) {
+    if (activeMode === 'merge' && selectedMergeFileId === null) selectMergeFile(mergeOrder[0]);
+    if (activeMode === 'mix' && selectedMixFileId === null) selectMixFile(mixOrder[0]);
   }
+  if (activeMode === 'organize' && selectedPageId === null && pages.length > 0) selectPage(pages[0].id);
 }
 
-async function addFilePages(file) {
+async function addFile(file) {
   let pdfDoc;
   try {
     const arrayBuffer = await file.arrayBuffer();
@@ -142,14 +192,27 @@ async function addFilePages(file) {
 
   pdfjsDocCache.set(file, pdfDoc);
 
-  const entries = [];
-  for (let i = 0; i < pdfDoc.numPages; i++) {
-    entries.push({ id: crypto.randomUUID(), file, pageIndex: i, name: file.name, thumbUrl: null, previewUrl: null, rotation: 0 });
-  }
-  pages.push(...entries);
-  render();
+  const fileEntry = {
+    id: crypto.randomUUID(),
+    file,
+    pageCount: pdfDoc.numPages,
+    name: file.name,
+    thumbUrl: null,
+    previewUrl: null,
+    pageIndex: 0,
+    rotation: 0,
+  };
+  files.push(fileEntry);
+  mergeOrder.push(fileEntry.id);
+  mixOrder.push(fileEntry.id);
+  renderThumbForFile(fileEntry);
 
-  for (const entry of entries) {
+  const pageEntries = [];
+  for (let i = 0; i < pdfDoc.numPages; i++) {
+    pageEntries.push({ id: crypto.randomUUID(), file, pageIndex: i, name: file.name, thumbUrl: null, previewUrl: null, rotation: 0 });
+  }
+  pages.push(...pageEntries);
+  for (const entry of pageEntries) {
     await renderThumbForEntry(entry);
   }
 }
@@ -158,6 +221,23 @@ async function addFilePages(file) {
 // whatever the page's own /Rotate metadata already applies — total = page.rotate + entry.rotation.
 function totalRotationFor(page, entry) {
   return (page.rotate + entry.rotation + 360) % 360;
+}
+
+async function renderThumbForFile(fileEntry) {
+  try {
+    const pdfDoc = pdfjsDocCache.get(fileEntry.file);
+    const page = await pdfDoc.getPage(1);
+    const viewport = page.getViewport({ scale: 1 });
+    const scaledViewport = page.getViewport({ scale: THUMB_WIDTH / viewport.width });
+    const canvas = document.createElement('canvas');
+    canvas.width = scaledViewport.width;
+    canvas.height = scaledViewport.height;
+    await page.render({ canvasContext: canvas.getContext('2d'), viewport: scaledViewport }).promise;
+    fileEntry.thumbUrl = canvas.toDataURL('image/jpeg', 0.85);
+    updateFileThumb(fileEntry);
+  } catch (err) {
+    console.error(err);
+  }
 }
 
 async function renderThumbForEntry(entry) {
@@ -185,25 +265,124 @@ function rotatePage(id, delta) {
   entry.thumbUrl = null;
   entry.previewUrl = null;
   renderThumbForEntry(entry);
-  if (selectedId === id) showPreview(entry);
+  if (selectedPageId === id) showPreview(entry);
 }
 
 function removePage(id) {
   pages = pages.filter(p => p.id !== id);
-  if (selectedId === id) {
-    selectedId = null;
+  if (selectedPageId === id) {
+    selectedPageId = null;
     clearPreview();
     if (pages.length > 0) selectPage(pages[0].id);
   }
-  render();
+  renderOrganizePanel();
+  updateActionAvailability();
 }
 
-function render() {
+function removeFile(fileId) {
+  const fileEntry = files.find(f => f.id === fileId);
+  files = files.filter(f => f.id !== fileId);
+  mergeOrder = mergeOrder.filter(id => id !== fileId);
+  mixOrder = mixOrder.filter(id => id !== fileId);
+  mixReversed.delete(fileId);
+
+  if (fileEntry) {
+    pages = pages.filter(p => p.file !== fileEntry.file);
+    pdfjsDocCache.delete(fileEntry.file);
+  }
+
+  if (selectedMergeFileId === fileId) selectedMergeFileId = null;
+  if (selectedMixFileId === fileId) selectedMixFileId = null;
+  if (selectedPageId && !pages.find(p => p.id === selectedPageId)) selectedPageId = null;
+
+  clearPreview();
+  renderAll();
+}
+
+function renderAll() {
+  renderMergePanel();
+  renderMixPanel();
+  renderOrganizePanel();
+  updateActionAvailability();
+}
+
+function buildFileCard(entry, index, opts) {
+  const card = document.createElement('div');
+  card.className = 'page-card file-card' + (opts.selected ? ' selected' : '');
+  card.draggable = true;
+  card.dataset.id = entry.id;
+
+  card.innerHTML = `
+    <div class="page-thumb-wrap">
+      <div class="page-thumb-img-slot">${entry.thumbUrl ? `<img src="${entry.thumbUrl}" alt="${entry.name}">` : '<div class="spinner"></div>'}</div>
+    </div>
+    <span class="page-index">${index + 1}</span>
+    <button class="page-remove" aria-label="Remove file">&times;</button>
+    <div class="page-meta" title="${entry.name}">${entry.name} &middot; ${entry.pageCount} page${entry.pageCount === 1 ? '' : 's'}</div>
+    ${opts.showReverse ? `<label class="file-reverse-toggle"><input type="checkbox" ${opts.reversed ? 'checked' : ''}> Reverse pages</label>` : ''}
+  `;
+
+  return card;
+}
+
+function renderMergePanel() {
+  mergeFileListEl.innerHTML = '';
+  mergeOrder.forEach((id, index) => {
+    const entry = files.find(f => f.id === id);
+    if (!entry) return;
+
+    const card = buildFileCard(entry, index, { showReverse: false, selected: entry.id === selectedMergeFileId });
+
+    card.addEventListener('click', (e) => {
+      if (e.target.closest('.page-remove')) return;
+      selectMergeFile(entry.id);
+    });
+
+    card.querySelector('.page-remove').addEventListener('click', (e) => {
+      e.stopPropagation();
+      removeFile(entry.id);
+    });
+
+    attachFileDragHandlers(card, entry.id, () => mergeOrder, renderMergePanel, mergeFileListEl);
+    mergeFileListEl.appendChild(card);
+  });
+}
+
+function renderMixPanel() {
+  mixFileListEl.innerHTML = '';
+  mixOrder.forEach((id, index) => {
+    const entry = files.find(f => f.id === id);
+    if (!entry) return;
+
+    const card = buildFileCard(entry, index, { showReverse: true, reversed: mixReversed.has(entry.id), selected: entry.id === selectedMixFileId });
+
+    card.addEventListener('click', (e) => {
+      if (e.target.closest('.page-remove') || e.target.closest('.file-reverse-toggle')) return;
+      selectMixFile(entry.id);
+    });
+
+    card.querySelector('.page-remove').addEventListener('click', (e) => {
+      e.stopPropagation();
+      removeFile(entry.id);
+    });
+
+    const checkbox = card.querySelector('.file-reverse-toggle input');
+    checkbox.addEventListener('click', (e) => e.stopPropagation());
+    checkbox.addEventListener('change', () => {
+      if (checkbox.checked) mixReversed.add(entry.id); else mixReversed.delete(entry.id);
+    });
+
+    attachFileDragHandlers(card, entry.id, () => mixOrder, renderMixPanel, mixFileListEl);
+    mixFileListEl.appendChild(card);
+  });
+}
+
+function renderOrganizePanel() {
   pageGridEl.innerHTML = '';
 
   pages.forEach((entry, index) => {
     const card = document.createElement('div');
-    card.className = 'page-card' + (entry.id === selectedId ? ' selected' : '');
+    card.className = 'page-card' + (entry.id === selectedPageId ? ' selected' : '');
     card.draggable = true;
     card.dataset.id = entry.id;
 
@@ -240,10 +419,28 @@ function render() {
     attachDragHandlers(card, entry);
     pageGridEl.appendChild(card);
   });
+}
 
-  const hasPages = pages.length > 0;
-  clearBtn.disabled = !hasPages;
-  mergeBtn.disabled = !hasPages;
+function updateActionAvailability() {
+  const hasFiles = files.length > 0;
+  clearBtn.disabled = !hasFiles;
+
+  if (activeMode === 'merge') {
+    mergeBtn.textContent = 'Preview Merge';
+    mergeBtn.disabled = mergeOrder.length === 0;
+  } else if (activeMode === 'mix') {
+    mergeBtn.textContent = 'Preview Mix';
+    mergeBtn.disabled = mixOrder.length < 2;
+  } else {
+    mergeBtn.textContent = 'Preview Merge';
+    mergeBtn.disabled = pages.length === 0;
+  }
+}
+
+function updateFileThumb(entry) {
+  document.querySelectorAll(`.file-card[data-id="${entry.id}"] .page-thumb-img-slot`).forEach((slot) => {
+    slot.innerHTML = `<img src="${entry.thumbUrl}" alt="${entry.name}">`;
+  });
 }
 
 function updateThumb(entry) {
@@ -251,6 +448,45 @@ function updateThumb(entry) {
   if (!card) return;
   const slot = card.querySelector('.page-thumb-img-slot');
   if (slot) slot.innerHTML = `<img src="${entry.thumbUrl}" alt="thumbnail">`;
+}
+
+function attachFileDragHandlers(card, fileId, getOrder, rerender, containerEl) {
+  card.addEventListener('dragstart', () => {
+    dragSrcFileId = fileId;
+    card.classList.add('dragging');
+  });
+
+  card.addEventListener('dragend', () => {
+    card.classList.remove('dragging');
+    clearDropIndicators(containerEl);
+  });
+
+  card.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    if (!dragSrcFileId || dragSrcFileId === fileId) return;
+    const rect = card.getBoundingClientRect();
+    const after = e.clientX - rect.left > rect.width / 2;
+    clearDropIndicators(containerEl);
+    card.classList.add(after ? 'drop-after' : 'drop-before');
+  });
+
+  card.addEventListener('drop', (e) => {
+    e.preventDefault();
+    clearDropIndicators(containerEl);
+    if (!dragSrcFileId || dragSrcFileId === fileId) return;
+
+    const order = getOrder();
+    const rect = card.getBoundingClientRect();
+    const after = e.clientX - rect.left > rect.width / 2;
+
+    const fromIndex = order.indexOf(dragSrcFileId);
+    order.splice(fromIndex, 1);
+    let toIndex = order.indexOf(fileId);
+    order.splice(after ? toIndex + 1 : toIndex, 0, dragSrcFileId);
+
+    dragSrcFileId = null;
+    rerender();
+  });
 }
 
 function attachDragHandlers(card, entry) {
@@ -261,7 +497,7 @@ function attachDragHandlers(card, entry) {
 
   card.addEventListener('dragend', () => {
     card.classList.remove('dragging');
-    clearDropIndicators();
+    clearDropIndicators(pageGridEl);
   });
 
   card.addEventListener('dragover', (e) => {
@@ -269,13 +505,13 @@ function attachDragHandlers(card, entry) {
     if (!dragSrcId || dragSrcId === entry.id) return;
     const rect = card.getBoundingClientRect();
     const after = e.clientX - rect.left > rect.width / 2;
-    clearDropIndicators();
+    clearDropIndicators(pageGridEl);
     card.classList.add(after ? 'drop-after' : 'drop-before');
   });
 
   card.addEventListener('drop', (e) => {
     e.preventDefault();
-    clearDropIndicators();
+    clearDropIndicators(pageGridEl);
     if (!dragSrcId || dragSrcId === entry.id) return;
 
     const rect = card.getBoundingClientRect();
@@ -287,18 +523,36 @@ function attachDragHandlers(card, entry) {
     pages.splice(after ? toIndex + 1 : toIndex, 0, moved);
 
     dragSrcId = null;
-    render();
+    renderOrganizePanel();
   });
 }
 
-function clearDropIndicators() {
-  pageGridEl.querySelectorAll('.drop-before, .drop-after').forEach(el => {
+function clearDropIndicators(container) {
+  container.querySelectorAll('.drop-before, .drop-after').forEach(el => {
     el.classList.remove('drop-before', 'drop-after');
   });
 }
 
+function selectMergeFile(id) {
+  selectedMergeFileId = id;
+  mergeFileListEl.querySelectorAll('.page-card').forEach(card => {
+    card.classList.toggle('selected', card.dataset.id === id);
+  });
+  const entry = files.find(f => f.id === id);
+  if (entry) showPreview(entry);
+}
+
+function selectMixFile(id) {
+  selectedMixFileId = id;
+  mixFileListEl.querySelectorAll('.page-card').forEach(card => {
+    card.classList.toggle('selected', card.dataset.id === id);
+  });
+  const entry = files.find(f => f.id === id);
+  if (entry) showPreview(entry);
+}
+
 function selectPage(id) {
-  selectedId = id;
+  selectedPageId = id;
   pageGridEl.querySelectorAll('.page-card').forEach(card => {
     card.classList.toggle('selected', card.dataset.id === id);
   });
@@ -312,7 +566,9 @@ async function showPreview(entry) {
 
   previewEmpty.hidden = true;
   previewContent.hidden = false;
-  previewMeta.textContent = `${entry.name} — page ${entry.pageIndex + 1}`;
+  previewMeta.textContent = 'pageCount' in entry
+    ? `${entry.name} — first page`
+    : `${entry.name} — page ${entry.pageIndex + 1}`;
   magnifierGlass.hidden = true;
 
   if (entry.previewUrl) {
@@ -358,48 +614,56 @@ function clearPreview() {
   magnifierGlass.hidden = true;
 }
 
-async function mergeFiles() {
+function getEntriesForActiveMode() {
+  if (activeMode === 'merge') {
+    return mergeOrder.flatMap((id) => {
+      const f = files.find(x => x.id === id);
+      if (!f) return [];
+      return Array.from({ length: f.pageCount }, (_, i) => ({ file: f.file, pageIndex: i, rotation: 0, name: f.name }));
+    });
+  }
+  if (activeMode === 'mix') {
+    return buildMixEntries();
+  }
+  return pages;
+}
+
+function buildMixEntries() {
+  const activeFiles = mixOrder.map(id => files.find(f => f.id === id)).filter(Boolean);
+  if (activeFiles.length === 0) return [];
+
+  const pointer = activeFiles.map(f => (mixReversed.has(f.id) ? f.pageCount - 1 : 0));
+  const step = activeFiles.map(f => (mixReversed.has(f.id) ? -1 : 1));
+  const remaining = activeFiles.map(f => f.pageCount);
+  let totalRemaining = remaining.reduce((a, b) => a + b, 0);
+
+  const result = [];
+  while (totalRemaining > 0) {
+    for (let i = 0; i < activeFiles.length; i++) {
+      if (remaining[i] <= 0) continue;
+      const f = activeFiles[i];
+      result.push({ file: f.file, pageIndex: pointer[i], rotation: 0, name: f.name });
+      pointer[i] += step[i];
+      remaining[i]--;
+      totalRemaining--;
+    }
+  }
+  return result;
+}
+
+async function runActiveModeMerge() {
+  const entries = getEntriesForActiveMode();
+  if (entries.length === 0) return;
+
   mergeBtn.disabled = true;
   clearBtn.disabled = true;
-  setStatus('Preparing preview...');
+  setStatus(activeMode === 'mix' ? 'Preparing mix...' : 'Preparing preview...');
 
   try {
-    const mergedPdf = await PDFDocument.create();
-    const docCache = new Map(); // File -> pdf-lib PDFDocument
-    const rasterizedFiles = new Set(); // files that needed the image fallback
-
-    for (const entry of pages) {
-      let srcDoc = docCache.get(entry.file);
-      if (!srcDoc) {
-        const bytes = await entry.file.arrayBuffer();
-        srcDoc = await PDFDocument.load(bytes, { ignoreEncryption: true });
-        docCache.set(entry.file, srcDoc);
-      }
-
-      // pdf-lib cannot decrypt page content streams — copying pages from an
-      // encrypted source silently produces blank pages. Rasterize those pages
-      // via pdf.js instead, since pdf.js decrypts and renders them correctly.
-      if (srcDoc.isEncrypted) {
-        rasterizedFiles.add(entry.name);
-        await addRasterPage(mergedPdf, entry);
-        continue;
-      }
-
-      try {
-        const [copiedPage] = await mergedPdf.copyPages(srcDoc, [entry.pageIndex]);
-        mergedPdf.addPage(copiedPage);
-        if (entry.rotation) {
-          const current = copiedPage.getRotation().angle;
-          copiedPage.setRotation(degrees((current + entry.rotation + 360) % 360));
-        }
-      } catch (copyErr) {
-        console.error('copyPages failed, falling back to a rendered image:', copyErr);
-        rasterizedFiles.add(entry.name);
-        await addRasterPage(mergedPdf, entry);
-      }
-    }
-
-    lastMergedBytes = await mergedPdf.save();
+    const { bytes, rasterizedFiles } = await buildMergedPdf(entries);
+    lastMergedBytes = bytes;
+    lastMergedPageCount = entries.length;
+    lastMergedFilename = activeMode === 'mix' ? 'mixed.pdf' : 'merged.pdf';
 
     if (rasterizedFiles.size > 0) {
       modalSubtitle.textContent = `${[...rasterizedFiles].join(', ')} ${rasterizedFiles.size === 1 ? 'is' : 'are'} password-protected, so ${rasterizedFiles.size === 1 ? 'its' : 'their'} pages were rendered as images to make sure the content still shows up. Everything else was merged normally.`;
@@ -415,9 +679,48 @@ async function mergeFiles() {
     console.error(err);
     setStatus(`Failed to merge: ${err.message}`, true);
   } finally {
-    clearBtn.disabled = pages.length === 0;
-    mergeBtn.disabled = pages.length === 0;
+    updateActionAvailability();
   }
+}
+
+async function buildMergedPdf(pageEntries) {
+  const mergedPdf = await PDFDocument.create();
+  const docCache = new Map(); // File -> pdf-lib PDFDocument
+  const rasterizedFiles = new Set(); // files that needed the image fallback
+
+  for (const entry of pageEntries) {
+    let srcDoc = docCache.get(entry.file);
+    if (!srcDoc) {
+      const bytes = await entry.file.arrayBuffer();
+      srcDoc = await PDFDocument.load(bytes, { ignoreEncryption: true });
+      docCache.set(entry.file, srcDoc);
+    }
+
+    // pdf-lib cannot decrypt page content streams — copying pages from an
+    // encrypted source silently produces blank pages. Rasterize those pages
+    // via pdf.js instead, since pdf.js decrypts and renders them correctly.
+    if (srcDoc.isEncrypted) {
+      rasterizedFiles.add(entry.name);
+      await addRasterPage(mergedPdf, entry);
+      continue;
+    }
+
+    try {
+      const [copiedPage] = await mergedPdf.copyPages(srcDoc, [entry.pageIndex]);
+      mergedPdf.addPage(copiedPage);
+      if (entry.rotation) {
+        const current = copiedPage.getRotation().angle;
+        copiedPage.setRotation(degrees((current + entry.rotation + 360) % 360));
+      }
+    } catch (copyErr) {
+      console.error('copyPages failed, falling back to a rendered image:', copyErr);
+      rasterizedFiles.add(entry.name);
+      await addRasterPage(mergedPdf, entry);
+    }
+  }
+
+  const bytes = await mergedPdf.save();
+  return { bytes, rasterizedFiles };
 }
 
 async function addRasterPage(mergedPdf, entry) {
@@ -505,3 +808,5 @@ function setStatus(message, isError = false) {
   statusEl.textContent = message;
   statusEl.classList.toggle('error', isError);
 }
+
+setActiveMode('merge');
