@@ -1,4 +1,4 @@
-const { PDFDocument, StandardFonts, rgb, LineCapStyle, BlendMode } = PDFLib;
+const { PDFDocument, StandardFonts, rgb, LineCapStyle, BlendMode, PDFName, PDFArray, PDFRawStream } = PDFLib;
 pdfjsLib.GlobalWorkerOptions.workerSrc = 'lib/pdf.worker.min.js';
 
 const DISPLAY_WIDTH = 760; // fixed CSS px width pages are rendered at
@@ -95,6 +95,7 @@ let currentTool = 'select';
 let currentDateFormat = 'MM/DD/YYYY';
 let currentMode = 'edit';
 let pagesMarkedForDeletion = new Set();
+let lastMouseDownInfo = null; // { objId, time } — drives manual double-click detection, see attachObjectHandlers
 
 let historyStack = [];
 let historyIndex = -1;
@@ -386,7 +387,7 @@ fontSizeInput.addEventListener('input', () => {
   const obj = getSelectedObject();
   if (obj && obj.type in { text: 1, date: 1 }) {
     obj.fontSize = size;
-    obj.el.style.fontSize = size + 'px';
+    textTargetEl(obj).style.fontSize = size + 'px';
   } else {
     toolDefaults[currentTool] && (toolDefaults[currentTool].fontSize = size);
   }
@@ -398,7 +399,7 @@ fontFamilyInput.addEventListener('change', () => {
   const obj = getSelectedObject();
   if (obj && obj.type in { text: 1, date: 1 }) {
     obj.fontFamily = family;
-    applyTextFontCss(obj.el, obj);
+    applyTextFontCss(obj);
   } else {
     toolDefaults[currentTool] && (toolDefaults[currentTool].fontFamily = family);
   }
@@ -409,7 +410,7 @@ boldToggleBtn.addEventListener('click', () => {
   const obj = getSelectedObject();
   if (obj && obj.type in { text: 1, date: 1 }) {
     obj.bold = !obj.bold;
-    applyTextFontCss(obj.el, obj);
+    applyTextFontCss(obj);
     boldToggleBtn.classList.toggle('active', obj.bold);
   } else if (toolDefaults[currentTool]) {
     toolDefaults[currentTool].bold = !toolDefaults[currentTool].bold;
@@ -422,7 +423,7 @@ italicToggleBtn.addEventListener('click', () => {
   const obj = getSelectedObject();
   if (obj && obj.type in { text: 1, date: 1 }) {
     obj.italic = !obj.italic;
-    applyTextFontCss(obj.el, obj);
+    applyTextFontCss(obj);
     italicToggleBtn.classList.toggle('active', obj.italic);
   } else if (toolDefaults[currentTool]) {
     toolDefaults[currentTool].italic = !toolDefaults[currentTool].italic;
@@ -460,7 +461,7 @@ dateFormatInput.addEventListener('change', () => {
   const obj = getSelectedObject();
   if (obj && obj.type === 'date') {
     obj.dateFormat = currentDateFormat;
-    obj.el.textContent = formatDate(new Date(), currentDateFormat);
+    textTargetEl(obj).textContent = formatDate(new Date(), currentDateFormat);
     pushHistory();
   }
 });
@@ -585,10 +586,20 @@ function handleOverlayMouseDown(e, pageNum, overlay) {
 
 // ---------- Text / Date ----------
 
-function applyTextFontCss(el, obj) {
-  el.style.fontFamily = FONT_CSS_STACK[obj.fontFamily] || FONT_CSS_STACK.helvetica;
-  el.style.fontWeight = obj.bold ? '700' : '400';
-  el.style.fontStyle = obj.italic ? 'italic' : 'normal';
+// A text-edit object's resize handle lives as a sibling of the contentEditable region
+// (see startTextEdit) rather than inside it — nesting it inside was tried first, but
+// Chromium's native "select all + retype" treats the handle as ordinary editable content
+// and deletes it. `obj.el` is always the positioned/sized/draggable box; `textTargetEl`
+// resolves to whichever element actually holds the editable text within it.
+function textTargetEl(obj) {
+  return (obj.isTextEdit && obj.textEl) ? obj.textEl : obj.el;
+}
+
+function applyTextFontCss(obj) {
+  const target = textTargetEl(obj);
+  target.style.fontFamily = FONT_CSS_STACK[obj.fontFamily] || FONT_CSS_STACK.helvetica;
+  target.style.fontWeight = obj.bold ? '700' : '400';
+  target.style.fontStyle = obj.italic ? 'italic' : 'normal';
 }
 
 function createTextObject(pageNum, overlay, x, y, isDate) {
@@ -611,7 +622,7 @@ function createTextObject(pageNum, overlay, x, y, isDate) {
     dateFormat: currentDateFormat,
     el,
   };
-  applyTextFontCss(el, obj);
+  applyTextFontCss(obj);
 
   if (isDate) {
     el.textContent = formatDate(new Date(), currentDateFormat);
@@ -716,41 +727,62 @@ function startTextEdit(span, pageNum, overlay) {
   span.dataset.covered = 'true';
 
   const id = 'obj-' + (++objectCounter);
+
+  // The visible/editable box is freely draggable and resizable (see startResize) so you can
+  // nudge it if the detected position isn't quite right — but the ORIGINAL text must stay
+  // hidden no matter where that box ends up. So a separate, fixed, non-interactive backdrop
+  // sits behind it at the original text's exact position and never moves; the draggable box
+  // is just what carries the replacement text on top of it.
+  const coverEl = document.createElement('div');
+  coverEl.className = 'text-edit-cover';
+  coverEl.style.left = x + 'px';
+  coverEl.style.top = y + 'px';
+  coverEl.style.width = width + 'px';
+  coverEl.style.height = height + 'px';
+  coverEl.style.background = coverColor;
+  overlay.appendChild(coverEl);
+
+  // The resize handles must NOT live inside the contentEditable region (see textTargetEl's
+  // comment), so they're siblings of the text content div, both inside a plain (non-editable)
+  // positioned wrapper.
   const el = document.createElement('div');
   el.className = 'edit-object edit-text text-edit';
-  el.contentEditable = 'true';
   el.style.left = x + 'px';
   el.style.top = y + 'px';
   el.style.width = width + 'px';
   el.style.minHeight = height + 'px';
-  el.style.fontSize = fontSize + 'px';
-  el.style.color = color;
   el.style.background = coverColor;
-  el.textContent = originalText;
   el.dataset.id = id;
-  overlay.appendChild(el);
 
-  const handle = document.createElement('div');
-  handle.className = 'resize-handle';
-  el.appendChild(handle);
+  const textEl = document.createElement('div');
+  textEl.className = 'text-edit-content';
+  textEl.contentEditable = 'true';
+  textEl.style.fontSize = fontSize + 'px';
+  textEl.style.color = color;
+  textEl.textContent = originalText;
+  el.appendChild(textEl);
+
+  addResizeHandles(el);
+  overlay.appendChild(el);
 
   const obj = {
     id, pageNum, type: 'text',
     x, y, width, height, fontSize, color,
+    coverX: x, coverY: y, coverWidth: width, coverHeight: height,
     fontFamily, bold: false, italic: false,
-    isTextEdit: true, coverColor, sourceSpan: span,
-    el,
+    isTextEdit: true, coverColor, sourceSpan: span, originalText,
+    el, textEl, coverEl,
   };
-  applyTextFontCss(el, obj);
+  applyTextFontCss(obj);
   objects.push(obj);
-  attachObjectHandlers(obj, handle);
+  attachObjectHandlers(obj, true);
   selectObject(id);
   pushHistory();
 
   requestAnimationFrame(() => {
-    el.focus();
+    textEl.focus();
     const range = document.createRange();
-    range.selectNodeContents(el);
+    range.selectNodeContents(textEl);
     const sel = window.getSelection();
     sel.removeAllRanges();
     sel.addRange(range);
@@ -804,6 +836,7 @@ function startBoxDrag(pageNum, overlay, startX, startY, type) {
 
     const id = 'obj-' + (++objectCounter);
     el.dataset.id = id;
+    addResizeHandles(el);
     const obj = {
       id, pageNum, type,
       x: parseFloat(el.style.left), y: parseFloat(el.style.top),
@@ -811,7 +844,7 @@ function startBoxDrag(pageNum, overlay, startX, startY, type) {
       el,
     };
     objects.push(obj);
-    attachObjectHandlers(obj);
+    attachObjectHandlers(obj, true);
     selectObject(id);
 
     currentTool = 'select';
@@ -839,11 +872,8 @@ function createIconObject(pageNum, overlay, x, y, type) {
 
   const svg = buildIconSvg(type, defaults.color);
   el.appendChild(svg);
+  addResizeHandles(el);
   overlay.appendChild(el);
-
-  const handle = document.createElement('div');
-  handle.className = 'resize-handle';
-  el.appendChild(handle);
 
   const obj = {
     id, pageNum, type,
@@ -852,7 +882,7 @@ function createIconObject(pageNum, overlay, x, y, type) {
     el, svgEl: svg,
   };
   objects.push(obj);
-  attachObjectHandlers(obj, handle);
+  attachObjectHandlers(obj, true);
   return obj;
 }
 
@@ -898,12 +928,9 @@ function createFormFieldObject(pageNum, overlay, x, y, type) {
   label.style.color = defaults.color;
   label.textContent = isCheckbox ? '' : 'Text Field';
   el.appendChild(label);
+  addResizeHandles(el);
+  el.querySelectorAll('.resize-handle').forEach(h => { h.style.background = defaults.color; });
   overlay.appendChild(el);
-
-  const handle = document.createElement('div');
-  handle.className = 'resize-handle';
-  handle.style.background = defaults.color;
-  el.appendChild(handle);
 
   const obj = {
     id, pageNum, type,
@@ -912,7 +939,7 @@ function createFormFieldObject(pageNum, overlay, x, y, type) {
     el, labelEl: label,
   };
   objects.push(obj);
-  attachObjectHandlers(obj, handle);
+  attachObjectHandlers(obj, true);
   return obj;
 }
 
@@ -1248,11 +1275,8 @@ function placeImageObject(type, dataUrl, naturalWidth, naturalHeight) {
   img.src = dataUrl;
   img.draggable = false;
   el.appendChild(img);
+  addResizeHandles(el);
   page.overlayEl.appendChild(el);
-
-  const handle = document.createElement('div');
-  handle.className = 'resize-handle';
-  el.appendChild(handle);
 
   const obj = {
     id, pageNum: page.pageNum, type,
@@ -1260,14 +1284,27 @@ function placeImageObject(type, dataUrl, naturalWidth, naturalHeight) {
     el,
   };
   objects.push(obj);
-  attachObjectHandlers(obj, handle);
+  attachObjectHandlers(obj, true);
   selectObject(id);
   pushHistory();
 }
 
 // ---------- Generic drag / resize / select ----------
 
-function attachObjectHandlers(obj, resizeHandle) {
+// Every resizable object gets the same 8 handles (4 corners + 4 edges), Sejda-style, so it
+// can be resized from any side. `dir` (e.g. "se", "n") tells startResize which edges move.
+const RESIZE_DIRS = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'];
+
+function addResizeHandles(container) {
+  RESIZE_DIRS.forEach(dir => {
+    const h = document.createElement('div');
+    h.className = 'resize-handle';
+    h.dataset.dir = dir;
+    container.appendChild(h);
+  });
+}
+
+function attachObjectHandlers(obj, resizable) {
   obj.el.addEventListener('mousedown', (e) => {
     // While a placement/drawing tool is active, existing objects must not swallow the click —
     // otherwise clicking on top of something already on the page silently selects/drags it
@@ -1276,40 +1313,57 @@ function attachObjectHandlers(obj, resizeHandle) {
     if (currentTool !== 'select') return;
     if (e.target.classList && (e.target.classList.contains('resize-handle') || e.target.classList.contains('line-handle'))) return;
     e.stopPropagation();
+
+    // Native 'dblclick' detection is unreliable here: selecting a text object can reveal
+    // format-panel fields synchronously, reflowing the page mid-gesture so a fast second
+    // click lands on a different screen position and the browser never pairs it with the
+    // first. Track "two mousedowns on the same object within a beat" ourselves instead —
+    // mousedown always fires reliably regardless of any reflow in between. The decision of
+    // what a double-click actually MEANS is deferred to mouseup (see startObjectDrag): if
+    // the mouse moves, it's a drag (even if it started within the double-click window,
+    // e.g. select-then-immediately-drag); only a genuine no-movement second click enters
+    // edit mode.
+    const isDoubleClick = lastMouseDownInfo
+      && lastMouseDownInfo.objId === obj.id
+      && Date.now() - lastMouseDownInfo.time < 400;
+    lastMouseDownInfo = { objId: obj.id, time: Date.now() };
+
     selectObject(obj.id);
-    if ((obj.type === 'text' || obj.type === 'date') && obj.el.isContentEditable) return;
+
+    if ((obj.type === 'text' || obj.type === 'date') && textTargetEl(obj).isContentEditable) return;
+    // A text edit's box is fully draggable/resizable so you can nudge it back into place —
+    // the original text stays safely hidden regardless, because that's handled by a
+    // separate, fixed backdrop (obj.coverEl) that never moves. See startTextEdit.
     e.preventDefault();
-    startObjectDrag(obj, e);
+    startObjectDrag(obj, e, isDoubleClick);
   });
 
   if (obj.type === 'text' || obj.type === 'date') {
-    obj.el.addEventListener('dblclick', (e) => {
-      if (currentTool !== 'select') return;
-      e.stopPropagation();
-      obj.el.contentEditable = 'true';
-      obj.el.focus();
-    });
+    const textEl = textTargetEl(obj);
 
-    obj.el.addEventListener('blur', () => {
-      obj.el.contentEditable = 'false';
-      if (!obj.isTextEdit && obj.el.textContent.trim() === '') {
+    textEl.addEventListener('blur', () => {
+      textEl.contentEditable = 'false';
+      if (!obj.isTextEdit && textEl.textContent.trim() === '') {
         deleteObject(obj.id);
       }
       pushHistory();
     });
   }
 
-  if (resizeHandle) {
-    resizeHandle.addEventListener('mousedown', (e) => {
-      if (currentTool !== 'select') return;
-      e.stopPropagation();
-      selectObject(obj.id);
-      startResize(obj, e);
+  if (resizable) {
+    obj.el.querySelectorAll('.resize-handle').forEach(handle => {
+      handle.addEventListener('mousedown', (e) => {
+        if (currentTool !== 'select') return;
+        e.stopPropagation();
+        e.preventDefault();
+        selectObject(obj.id);
+        startResize(obj, e, handle.dataset.dir);
+      });
     });
   }
 }
 
-function startObjectDrag(obj, e) {
+function startObjectDrag(obj, e, isDoubleClick) {
   const startMouseX = e.clientX;
   const startMouseY = e.clientY;
   const startX = obj.x;
@@ -1319,9 +1373,12 @@ function startObjectDrag(obj, e) {
   let moved = false;
 
   function onMove(ev) {
-    moved = true;
     const dx = ev.clientX - startMouseX;
     const dy = ev.clientY - startMouseY;
+    // A few pixels of jitter shouldn't count as a drag — that's what lets a genuine
+    // (no-movement) second click still register as a double-click below.
+    if (!moved && Math.hypot(dx, dy) < 3) return;
+    moved = true;
     if (isLine) {
       obj.x1 = startX1 + dx; obj.y1 = startY1 + dy;
       obj.x2 = startX2 + dx; obj.y2 = startY2 + dy;
@@ -1336,23 +1393,47 @@ function startObjectDrag(obj, e) {
   function onUp() {
     document.removeEventListener('mousemove', onMove);
     document.removeEventListener('mouseup', onUp);
-    if (moved) pushHistory();
+    if (moved) {
+      pushHistory();
+    } else if (isDoubleClick && (obj.type === 'text' || obj.type === 'date')) {
+      const textEl = textTargetEl(obj);
+      textEl.contentEditable = 'true';
+      requestAnimationFrame(() => textEl.focus());
+    }
   }
   document.addEventListener('mousemove', onMove);
   document.addEventListener('mouseup', onUp);
 }
 
-function startResize(obj, e) {
+const RESIZE_MIN_SIZE = 12;
+
+function startResize(obj, e, dir) {
   const startMouseX = e.clientX;
   const startMouseY = e.clientY;
+  const startX = obj.x;
+  const startY = obj.y;
   const startW = obj.width;
   const startH = obj.height;
 
   function onMove(ev) {
-    obj.width = Math.max(10, startW + (ev.clientX - startMouseX));
-    obj.height = Math.max(10, startH + (ev.clientY - startMouseY));
-    obj.el.style.width = obj.width + 'px';
-    obj.el.style.height = obj.height + 'px';
+    const dx = ev.clientX - startMouseX;
+    const dy = ev.clientY - startMouseY;
+    let x = startX, y = startY, w = startW, h = startH;
+
+    if (dir.includes('e')) w = Math.max(RESIZE_MIN_SIZE, startW + dx);
+    if (dir.includes('w')) { w = Math.max(RESIZE_MIN_SIZE, startW - dx); x = startX + (startW - w); }
+    if (dir.includes('s')) h = Math.max(RESIZE_MIN_SIZE, startH + dy);
+    if (dir.includes('n')) { h = Math.max(RESIZE_MIN_SIZE, startH - dy); y = startY + (startH - h); }
+
+    obj.x = x;
+    obj.y = y;
+    obj.width = w;
+    obj.height = h;
+    obj.el.style.left = x + 'px';
+    obj.el.style.top = y + 'px';
+    obj.el.style.width = w + 'px';
+    if (obj.isTextEdit) obj.el.style.minHeight = h + 'px';
+    else obj.el.style.height = h + 'px';
   }
   function onUp() {
     document.removeEventListener('mousemove', onMove);
@@ -1414,12 +1495,16 @@ function updateToolbarForSelection() {
   const showColor = type && type !== 'image' && type !== 'signature' && type !== 'initials';
   const showDateFormat = type === 'date';
 
-  fontFamilyField.style.display = showFontSize ? '' : 'none';
-  fontSizeField.style.display = showFontSize ? '' : 'none';
-  fontStyleField.style.display = showFontStyle ? '' : 'none';
-  strokeWidthField.style.display = showStroke ? '' : 'none';
-  colorField.style.display = showColor ? '' : 'none';
-  dateFormatField.style.display = showDateFormat ? '' : 'none';
+  // visibility, not display: hiding these by removing them from layout would change the
+  // toolbar's width/wrap and shift the whole page underneath an in-progress click (e.g. the
+  // second click of a double-click on a just-selected text edit would then miss its target
+  // entirely). visibility:hidden keeps the same space reserved either way.
+  fontFamilyField.style.visibility = showFontSize ? '' : 'hidden';
+  fontSizeField.style.visibility = showFontSize ? '' : 'hidden';
+  fontStyleField.style.visibility = showFontStyle ? '' : 'hidden';
+  strokeWidthField.style.visibility = showStroke ? '' : 'hidden';
+  colorField.style.visibility = showColor ? '' : 'hidden';
+  dateFormatField.style.visibility = showDateFormat ? '' : 'hidden';
 
   fontFamilyInput.disabled = !showFontSize;
   fontSizeInput.disabled = !showFontSize;
@@ -1448,6 +1533,7 @@ function deleteObject(id) {
   const idx = objects.findIndex(o => o.id === id);
   if (idx === -1) return;
   if (objects[idx].sourceSpan) delete objects[idx].sourceSpan.dataset.covered;
+  if (objects[idx].coverEl) objects[idx].coverEl.remove();
   objects[idx].el.remove();
   objects.splice(idx, 1);
   if (selectedId === id) {
@@ -1735,10 +1821,10 @@ function renderTypedTextToDataUrl(text, fontFamily, color) {
 function serializeObject(obj) {
   const copy = {};
   for (const k in obj) {
-    if (k === 'el' || k === 'svgEl' || k === 'pathEl' || k === 'handleStart' || k === 'handleEnd') continue;
+    if (k === 'el' || k === 'textEl' || k === 'coverEl' || k === 'svgEl' || k === 'pathEl' || k === 'handleStart' || k === 'handleEnd') continue;
     copy[k] = obj[k];
   }
-  if (obj.type === 'text' || obj.type === 'date') copy.text = obj.el.textContent;
+  if (obj.type === 'text' || obj.type === 'date') copy.text = textTargetEl(obj).textContent;
   if (obj.type === 'draw') copy.points = obj.points.map(p => ({ x: p.x, y: p.y }));
   return copy;
 }
@@ -1807,30 +1893,51 @@ function rebuildObject(data) {
   if (data.type === 'text' || data.type === 'date') {
     const el = document.createElement('div');
     el.className = 'edit-object edit-text' + (data.isTextEdit ? ' text-edit' : '');
-    el.contentEditable = 'false';
     el.style.left = data.x + 'px';
     el.style.top = data.y + 'px';
-    el.style.fontSize = data.fontSize + 'px';
-    el.style.color = data.color;
+    el.dataset.id = data.id;
+
+    let obj;
+
     if (data.isTextEdit) {
+      // Same wrapper/inner-content/fixed-cover-backdrop split as startTextEdit.
       el.style.width = data.width + 'px';
       el.style.minHeight = data.height + 'px';
       el.style.background = data.coverColor;
       if (data.sourceSpan) data.sourceSpan.dataset.covered = 'true';
+
+      const coverEl = document.createElement('div');
+      coverEl.className = 'text-edit-cover';
+      coverEl.style.left = data.coverX + 'px';
+      coverEl.style.top = data.coverY + 'px';
+      coverEl.style.width = data.coverWidth + 'px';
+      coverEl.style.height = data.coverHeight + 'px';
+      coverEl.style.background = data.coverColor;
+      overlay.appendChild(coverEl);
+
+      const textEl = document.createElement('div');
+      textEl.className = 'text-edit-content';
+      textEl.contentEditable = 'false';
+      textEl.style.fontSize = data.fontSize + 'px';
+      textEl.style.color = data.color;
+      textEl.textContent = data.text || '';
+      el.appendChild(textEl);
+
+      addResizeHandles(el);
+
+      obj = Object.assign({}, data, { el, textEl, coverEl });
+    } else {
+      el.contentEditable = 'false';
+      el.style.fontSize = data.fontSize + 'px';
+      el.style.color = data.color;
+      el.textContent = data.text || '';
+      obj = Object.assign({}, data, { el });
     }
-    el.textContent = data.text || '';
-    el.dataset.id = data.id;
+
     overlay.appendChild(el);
-    let handle = null;
-    if (data.isTextEdit) {
-      handle = document.createElement('div');
-      handle.className = 'resize-handle';
-      el.appendChild(handle);
-    }
-    const obj = Object.assign({}, data, { el });
-    applyTextFontCss(el, obj);
+    applyTextFontCss(obj);
     objects.push(obj);
-    attachObjectHandlers(obj, handle);
+    attachObjectHandlers(obj, !!data.isTextEdit);
     return;
   }
 
@@ -1844,13 +1951,11 @@ function rebuildObject(data) {
     el.style.background = data.color;
     if (data.type === 'highlight') { el.style.opacity = HIGHLIGHT_OPACITY; el.style.mixBlendMode = 'multiply'; }
     el.dataset.id = data.id;
+    addResizeHandles(el);
     overlay.appendChild(el);
-    const handle = document.createElement('div');
-    handle.className = 'resize-handle';
-    el.appendChild(handle);
     const obj = Object.assign({}, data, { el });
     objects.push(obj);
-    attachObjectHandlers(obj, handle);
+    attachObjectHandlers(obj, true);
     return;
   }
 
@@ -1864,13 +1969,11 @@ function rebuildObject(data) {
     el.dataset.id = data.id;
     const svg = buildIconSvg(data.type, data.color);
     el.appendChild(svg);
+    addResizeHandles(el);
     overlay.appendChild(el);
-    const handle = document.createElement('div');
-    handle.className = 'resize-handle';
-    el.appendChild(handle);
     const obj = Object.assign({}, data, { el, svgEl: svg });
     objects.push(obj);
-    attachObjectHandlers(obj, handle);
+    attachObjectHandlers(obj, true);
     return;
   }
 
@@ -1886,13 +1989,11 @@ function rebuildObject(data) {
     img.src = data.dataUrl;
     img.draggable = false;
     el.appendChild(img);
+    addResizeHandles(el);
     overlay.appendChild(el);
-    const handle = document.createElement('div');
-    handle.className = 'resize-handle';
-    el.appendChild(handle);
     const obj = Object.assign({}, data, { el });
     objects.push(obj);
-    attachObjectHandlers(obj, handle);
+    attachObjectHandlers(obj, true);
     return;
   }
 
@@ -1912,14 +2013,12 @@ function rebuildObject(data) {
     label.style.color = data.color;
     label.textContent = isCheckbox ? '' : 'Text Field';
     el.appendChild(label);
+    addResizeHandles(el);
+    el.querySelectorAll('.resize-handle').forEach(h => { h.style.background = data.color; });
     overlay.appendChild(el);
-    const handle = document.createElement('div');
-    handle.className = 'resize-handle';
-    handle.style.background = data.color;
-    el.appendChild(handle);
     const obj = Object.assign({}, data, { el, labelEl: label });
     objects.push(obj);
-    attachObjectHandlers(obj, handle);
+    attachObjectHandlers(obj, true);
     return;
   }
 
@@ -1982,6 +2081,347 @@ function rebuildObject(data) {
   }
 }
 
+// ---------- True text removal from content stream (best-effort) ----------
+//
+// The "edit existing text" flow above covers the original glyphs with a rectangle and
+// draws new text on top, like every other browser-based PDF editor — pdf-lib has no API to
+// rewrite glyphs in place, and full content-stream text editing is a document-editing-
+// engine-level feature. What we CAN do reliably is remove the original Tj/TJ operator that
+// drew the covered text from the page's content stream, so nothing of it survives in the
+// file — not just visually hidden, but actually gone: unselectable, unextractable. This is
+// a best-effort pass: if we can't find an unambiguous match for a given edit (unusual font
+// encoding, duplicate text, an unsupported stream filter, no DecompressionStream support),
+// that edit silently keeps the cover-rectangle fallback instead — never a guess that could
+// corrupt the file.
+
+async function inflateZlib(bytes) {
+  const ds = new DecompressionStream('deflate');
+  const stream = new Blob([bytes]).stream().pipeThrough(ds);
+  const buf = await new Response(stream).arrayBuffer();
+  return new Uint8Array(buf);
+}
+
+async function decodeStreamContents(rawStream) {
+  const bytes = rawStream.getContents();
+  const filterEntry = rawStream.dict.get(PDFName.of('Filter'));
+  const filterStr = filterEntry ? String(filterEntry) : '';
+  if (filterStr.includes('FlateDecode')) {
+    if (typeof DecompressionStream === 'undefined') {
+      throw new Error('DecompressionStream unsupported; cannot read compressed content stream');
+    }
+    return inflateZlib(bytes);
+  }
+  if (filterStr) {
+    throw new Error('Unsupported content stream filter: ' + filterStr);
+  }
+  return bytes;
+}
+
+async function getPageContentBytes(workDoc, pdfPage) {
+  const contentsEntry = pdfPage.node.get(PDFName.of('Contents'));
+  const resolved = workDoc.context.lookupMaybe(contentsEntry, PDFArray, PDFRawStream);
+  if (!resolved) throw new Error('Page has no readable content stream');
+
+  const chunks = [];
+  if (resolved instanceof PDFArray) {
+    for (let i = 0; i < resolved.size(); i++) {
+      const stream = workDoc.context.lookup(resolved.get(i));
+      chunks.push(await decodeStreamContents(stream));
+      chunks.push(new Uint8Array([0x0a]));
+    }
+  } else {
+    chunks.push(await decodeStreamContents(resolved));
+  }
+  const total = chunks.reduce((sum, c) => sum + c.length, 0);
+  const out = new Uint8Array(total);
+  let offset = 0;
+  for (const c of chunks) { out.set(c, offset); offset += c.length; }
+  return out;
+}
+
+function replacePageContentBytes(workDoc, pdfPage, newBytes) {
+  const dict = workDoc.context.obj({ Length: newBytes.length });
+  const newStream = PDFRawStream.of(dict, newBytes);
+  const ref = workDoc.context.register(newStream);
+  pdfPage.node.set(PDFName.of('Contents'), ref);
+}
+
+// ---- Minimal content-stream tokenizer ----
+
+const CS_WHITESPACE = new Set([0x00, 0x09, 0x0a, 0x0c, 0x0d, 0x20]);
+const CS_DELIMITER = new Set([0x28, 0x29, 0x3c, 0x3e, 0x5b, 0x5d, 0x7b, 0x7d, 0x2f, 0x25]);
+
+function csBytesToLatin1(arr) {
+  let s = '';
+  for (let k = 0; k < arr.length; k++) s += String.fromCharCode(arr[k]);
+  return s;
+}
+
+function tokenizeContentStream(bytes) {
+  const len = bytes.length;
+  const tokens = [];
+  let i = 0;
+
+  function skipWs() {
+    while (i < len) {
+      if (CS_WHITESPACE.has(bytes[i])) { i++; continue; }
+      if (bytes[i] === 0x25) { while (i < len && bytes[i] !== 0x0a && bytes[i] !== 0x0d) i++; continue; }
+      break;
+    }
+  }
+
+  function readName() {
+    const start = i;
+    i++;
+    const out = [];
+    while (i < len && !CS_WHITESPACE.has(bytes[i]) && !CS_DELIMITER.has(bytes[i])) {
+      if (bytes[i] === 0x23 && i + 2 < len) {
+        const code = parseInt(csBytesToLatin1(bytes.slice(i + 1, i + 3)), 16);
+        if (!isNaN(code)) { out.push(code); i += 3; continue; }
+      }
+      out.push(bytes[i]);
+      i++;
+    }
+    return { type: 'name', value: csBytesToLatin1(out), start, end: i };
+  }
+
+  function readNumber() {
+    const start = i;
+    if (bytes[i] === 0x2b || bytes[i] === 0x2d) i++;
+    while (i < len && ((bytes[i] >= 0x30 && bytes[i] <= 0x39) || bytes[i] === 0x2e)) i++;
+    return { type: 'number', value: parseFloat(csBytesToLatin1(bytes.slice(start, i))), start, end: i };
+  }
+
+  function readLiteralString() {
+    const start = i;
+    i++;
+    let depth = 1;
+    const out = [];
+    while (i < len && depth > 0) {
+      const b = bytes[i];
+      if (b === 0x5c) {
+        i++;
+        if (i >= len) break;
+        const esc = bytes[i];
+        const map = { 0x6e: 0x0a, 0x72: 0x0d, 0x74: 0x09, 0x62: 0x08, 0x66: 0x0c, 0x28: 0x28, 0x29: 0x29, 0x5c: 0x5c };
+        if (esc in map) { out.push(map[esc]); i++; }
+        else if (esc === 0x0a) { i++; }
+        else if (esc === 0x0d) { i++; if (bytes[i] === 0x0a) i++; }
+        else if (esc >= 0x30 && esc <= 0x37) {
+          let oct = ''; let count = 0;
+          while (count < 3 && i < len && bytes[i] >= 0x30 && bytes[i] <= 0x37) { oct += String.fromCharCode(bytes[i]); i++; count++; }
+          out.push(parseInt(oct, 8) & 0xff);
+        } else { out.push(esc); i++; }
+      } else if (b === 0x28) { depth++; out.push(b); i++; }
+      else if (b === 0x29) { depth--; i++; if (depth > 0) out.push(b); }
+      else { out.push(b); i++; }
+    }
+    return { type: 'string', value: new Uint8Array(out), start, end: i };
+  }
+
+  function readHexString() {
+    const start = i;
+    i++;
+    let hex = '';
+    while (i < len && bytes[i] !== 0x3e) {
+      if (!CS_WHITESPACE.has(bytes[i])) hex += String.fromCharCode(bytes[i]);
+      i++;
+    }
+    i++;
+    if (hex.length % 2 === 1) hex += '0';
+    const out = new Uint8Array(hex.length / 2);
+    for (let k = 0; k < out.length; k++) out[k] = parseInt(hex.substr(k * 2, 2), 16) || 0;
+    return { type: 'string', value: out, start, end: i };
+  }
+
+  function skipDict() {
+    const start = i;
+    i += 2;
+    let depth = 1;
+    while (i < len && depth > 0) {
+      if (bytes[i] === 0x3c && bytes[i + 1] === 0x3c) { depth++; i += 2; }
+      else if (bytes[i] === 0x3e && bytes[i + 1] === 0x3e) { depth--; i += 2; }
+      else i++;
+    }
+    return { type: 'dict', value: null, start, end: i };
+  }
+
+  function readArray() {
+    const start = i;
+    i++;
+    const items = [];
+    while (true) {
+      skipWs();
+      if (i >= len) break;
+      if (bytes[i] === 0x5d) { i++; break; }
+      const tok = readToken();
+      if (!tok) break;
+      items.push(tok);
+    }
+    return { type: 'array', value: items, start, end: i };
+  }
+
+  function readOperator() {
+    const start = i;
+    while (i < len && !CS_WHITESPACE.has(bytes[i]) && !CS_DELIMITER.has(bytes[i])) i++;
+    if (i === start) i++; // stray delimiter byte; avoid an infinite loop
+    return { type: 'operator', value: csBytesToLatin1(bytes.slice(start, i)), start, end: i };
+  }
+
+  function readToken() {
+    skipWs();
+    if (i >= len) return null;
+    const b = bytes[i];
+    if (b === 0x2f) return readName();
+    if ((b >= 0x30 && b <= 0x39) || b === 0x2b || b === 0x2d || b === 0x2e) return readNumber();
+    if (b === 0x28) return readLiteralString();
+    if (b === 0x3c) return bytes[i + 1] === 0x3c ? skipDict() : readHexString();
+    if (b === 0x5b) return readArray();
+    if (b === 0x5d || b === 0x3e) { i++; return readToken(); }
+    return readOperator();
+  }
+
+  while (true) {
+    skipWs();
+    if (i >= len) break;
+    const tok = readToken();
+    if (!tok) break;
+    tokens.push(tok);
+    // Raw-skip inline image data (BI ... ID <binary> EI) so binary bytes never confuse the
+    // tokenizer above.
+    if (tok.type === 'operator' && tok.value === 'ID') {
+      i++; // the single whitespace byte required after ID
+      const dataStart = i;
+      while (i < len - 1) {
+        if (bytes[i] === 0x45 && bytes[i + 1] === 0x49 /* "EI" */
+            && (i === dataStart || CS_WHITESPACE.has(bytes[i - 1]))
+            && (i + 2 >= len || CS_WHITESPACE.has(bytes[i + 2]))) {
+          break;
+        }
+        i++;
+      }
+      tokens.push({ type: 'string', value: bytes.slice(dataStart, i), start: dataStart, end: i });
+      const eiStart = i;
+      i += 2;
+      tokens.push({ type: 'operator', value: 'EI', start: eiStart, end: i });
+    }
+  }
+  return tokens;
+}
+
+// Groups the flat token list into operator calls: { operator, operands, start, end }
+// where start/end bound the ENTIRE call (its operands through the operator keyword) in the
+// original byte stream — used later to excise a call byte-for-byte.
+function groupOperatorCalls(tokens) {
+  const calls = [];
+  let pending = [];
+  for (const tok of tokens) {
+    if (tok.type === 'operator') {
+      const start = pending.length ? pending[0].start : tok.start;
+      calls.push({ operator: tok.value, operands: pending, start, end: tok.end });
+      pending = [];
+    } else {
+      pending.push(tok);
+    }
+  }
+  return calls;
+}
+
+function decodeShowTextBytes(bytes) {
+  let s = '';
+  for (let k = 0; k < bytes.length; k++) s += String.fromCharCode(bytes[k]);
+  return s;
+}
+
+function decodeOperandsText(operator, operands) {
+  if (operator === 'Tj' || operator === "'" || operator === '"') {
+    const strOperand = operands[operands.length - 1];
+    if (!strOperand || strOperand.type !== 'string') return null;
+    return decodeShowTextBytes(strOperand.value);
+  }
+  if (operator === 'TJ') {
+    const arrOperand = operands[operands.length - 1];
+    if (!arrOperand || arrOperand.type !== 'array') return null;
+    return arrOperand.value
+      .filter(item => item.type === 'string')
+      .map(item => decodeShowTextBytes(item.value))
+      .join('');
+  }
+  return null;
+}
+
+function normalizeForMatch(s) {
+  return (s || '').replace(/\s+/g, ' ').trim();
+}
+
+// Finds the single, unambiguous Tj/TJ call whose decoded text exactly matches targetText.
+// Returns its {start, end} byte range, or null if zero or multiple candidates were found —
+// ambiguity always means "don't touch it," never "guess."
+function findRemovableTextOperator(calls, targetText) {
+  const target = normalizeForMatch(targetText);
+  if (!target) return null;
+
+  const matches = [];
+  for (const call of calls) {
+    if (call.operator !== 'Tj' && call.operator !== 'TJ' && call.operator !== "'" && call.operator !== '"') continue;
+    const decoded = normalizeForMatch(decodeOperandsText(call.operator, call.operands));
+    if (decoded && decoded === target) matches.push(call);
+  }
+
+  if (matches.length !== 1) return null;
+  return { start: matches[0].start, end: matches[0].end };
+}
+
+function exciseByteRanges(bytes, ranges) {
+  if (!ranges.length) return bytes;
+  const sorted = ranges.slice().sort((a, b) => a.start - b.start);
+  const parts = [];
+  let cursor = 0;
+  for (const r of sorted) {
+    if (r.start < cursor) continue; // overlapping ranges — skip the later one defensively
+    parts.push(bytes.slice(cursor, r.start));
+    cursor = r.end;
+  }
+  parts.push(bytes.slice(cursor));
+  const total = parts.reduce((sum, c) => sum + c.length, 0);
+  const result = new Uint8Array(total);
+  let offset = 0;
+  for (const c of parts) { result.set(c, offset); offset += c.length; }
+  return result;
+}
+
+// Attempts to remove the original text-showing operators for every text-edit object on a
+// page, in one content-stream rewrite. Marks each successfully removed object with
+// `__removedFromStream = true` so the draw loop skips its cover rectangle. Never throws —
+// any failure just leaves that page's objects using the existing cover+redraw path.
+async function tryRemoveOriginalText(workDoc, pdfPages, editObjectsByPage) {
+  for (const [pageNum, editObjs] of editObjectsByPage) {
+    const pdfPage = pdfPages[pageNum - 1];
+    if (!pdfPage) continue;
+    try {
+      const contentBytes = await getPageContentBytes(workDoc, pdfPage);
+      const tokens = tokenizeContentStream(contentBytes);
+      const calls = groupOperatorCalls(tokens);
+
+      const ranges = [];
+      for (const obj of editObjs) {
+        const range = findRemovableTextOperator(calls, obj.originalText);
+        if (range) {
+          ranges.push(range);
+          obj.__removedFromStream = true;
+        }
+      }
+
+      if (ranges.length) {
+        const newBytes = exciseByteRanges(contentBytes, ranges);
+        replacePageContentBytes(workDoc, pdfPage, newBytes);
+      }
+    } catch (err) {
+      console.error(`True text removal skipped for page ${pageNum} (falling back to cover):`, err);
+    }
+  }
+}
+
 // ---------- Export ----------
 
 async function exportPdf() {
@@ -2002,6 +2442,19 @@ async function exportPdf() {
     const fontCache = new Map();
     const hasFormFields = objects.some(o => o.type === 'formtext' || o.type === 'formcheckbox');
     const form = hasFormFields ? workDoc.getForm() : null;
+
+    // Best-effort: actually delete the original text this edit covers from the page's
+    // content stream, instead of only visually hiding it. See the section above for why
+    // this can't be done for every edit, and why that's safe (it just falls back).
+    const textEditObjects = objects.filter(o => o.type === 'text' && o.isTextEdit && !srcDoc.isEncrypted);
+    if (textEditObjects.length) {
+      const editObjectsByPage = new Map();
+      for (const obj of textEditObjects) {
+        if (!editObjectsByPage.has(obj.pageNum)) editObjectsByPage.set(obj.pageNum, []);
+        editObjectsByPage.get(obj.pageNum).push(obj);
+      }
+      await tryRemoveOriginalText(workDoc, pdfPages, editObjectsByPage);
+    }
 
     async function getFontForObject(obj) {
       const family = obj.fontFamily || 'helvetica';
@@ -2028,10 +2481,13 @@ async function exportPdf() {
       } else if (obj.type === 'highlight') {
         drawScaledRect(pdfPage, pageInfo, obj, { color: hexToRgb(obj.color), opacity: HIGHLIGHT_OPACITY, blendMode: BlendMode.Multiply });
       } else if (obj.type === 'text' || obj.type === 'date') {
-        if (obj.isTextEdit) {
-          drawScaledRect(pdfPage, pageInfo, obj, { color: hexToRgb(obj.coverColor) });
+        if (obj.isTextEdit && !obj.__removedFromStream) {
+          // Cover the ORIGINAL text's fixed position, not wherever the (possibly dragged
+          // or resized) replacement text box currently sits.
+          const coverShim = { x: obj.coverX, y: obj.coverY, width: obj.coverWidth, height: obj.coverHeight };
+          drawScaledRect(pdfPage, pageInfo, coverShim, { color: hexToRgb(obj.coverColor) });
         }
-        const text = (obj.el.textContent || '').replace(/\n+$/, '');
+        const text = (textTargetEl(obj).textContent || '').replace(/\n+$/, '');
         if (!text.trim()) continue;
         const objFont = await getFontForObject(obj);
         const fontSizePdf = obj.fontSize / scale;

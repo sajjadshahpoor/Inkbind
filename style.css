@@ -723,18 +723,28 @@ h1 {
   border-color: var(--primary);
 }
 
+/* Every resizable object gets 8 handles (4 corners + 4 edges), Sejda-style, positioned by
+   their data-dir attribute. */
 .resize-handle {
   position: absolute;
-  right: -5px;
-  bottom: -5px;
   width: 10px;
   height: 10px;
   background: var(--primary);
+  border: 1.5px solid #fff;
   border-radius: 2px;
-  cursor: nwse-resize;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.15);
   display: none;
   z-index: 2;
 }
+
+.resize-handle[data-dir="nw"] { top: -6px; left: -6px; cursor: nwse-resize; }
+.resize-handle[data-dir="n"]  { top: -6px; left: 50%; margin-left: -5px; cursor: ns-resize; }
+.resize-handle[data-dir="ne"] { top: -6px; right: -6px; cursor: nesw-resize; }
+.resize-handle[data-dir="e"]  { top: 50%; right: -6px; margin-top: -5px; cursor: ew-resize; }
+.resize-handle[data-dir="se"] { bottom: -6px; right: -6px; cursor: nwse-resize; }
+.resize-handle[data-dir="s"]  { bottom: -6px; left: 50%; margin-left: -5px; cursor: ns-resize; }
+.resize-handle[data-dir="sw"] { bottom: -6px; left: -6px; cursor: nesw-resize; }
+.resize-handle[data-dir="w"]  { top: 50%; left: -6px; margin-top: -5px; cursor: ew-resize; }
 
 .edit-whiteout.selected .resize-handle,
 .edit-highlight.selected .resize-handle,
@@ -1024,8 +1034,35 @@ h1 {
 }
 
 .edit-text.text-edit {
-  white-space: pre-wrap;
   overflow: visible;
+  padding: 0;
+}
+
+/* The editable text lives in its own child element, separate from the resize handle —
+   see textTargetEl's comment in edit.js for why. */
+.text-edit-content {
+  width: 100%;
+  min-width: 20px;
+  padding: 1px 3px;
+  white-space: pre-wrap;
+  line-height: 1.25;
+  outline: none;
+  box-sizing: border-box;
+  cursor: text;
+}
+
+.text-edit-content[contenteditable="true"] {
+  cursor: text;
+  user-select: text;
+  background: rgba(79, 70, 229, 0.06);
+}
+
+/* Fixed, non-interactive backdrop hiding the original text at its actual position — stays
+   put even when the editable box above it (obj.el) is dragged or resized. See
+   startTextEdit's comment in edit.js. */
+.text-edit-cover {
+  position: absolute;
+  pointer-events: none;
 }
 
 /* ---- Create Forms field placeholders ---- */
