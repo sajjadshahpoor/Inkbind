@@ -26,14 +26,40 @@ const deletePagesBtn = document.getElementById('deletePagesBtn');
 
 const MODE_DEFAULT_TOOL = { edit: 'select', fillsign: 'select', forms: 'select', deletepages: 'select' };
 
+const fontFamilyField = document.getElementById('fontFamilyField');
 const fontSizeField = document.getElementById('fontSizeField');
+const fontStyleField = document.getElementById('fontStyleField');
 const strokeWidthField = document.getElementById('strokeWidthField');
 const colorField = document.getElementById('colorField');
 const dateFormatField = document.getElementById('dateFormatField');
+const fontFamilyInput = document.getElementById('fontFamilyInput');
 const fontSizeInput = document.getElementById('fontSizeInput');
+const boldToggleBtn = document.getElementById('boldToggleBtn');
+const italicToggleBtn = document.getElementById('italicToggleBtn');
 const strokeWidthInput = document.getElementById('strokeWidthInput');
 const colorInput = document.getElementById('colorInput');
 const dateFormatInput = document.getElementById('dateFormatInput');
+
+// Maps our 3 supported families to pdf-lib's standard-14 font variants, and to a matching
+// CSS font stack so the on-screen editable box looks like the exported PDF text too.
+const FONT_VARIANTS = {
+  helvetica: { regular: 'Helvetica', bold: 'HelveticaBold', italic: 'HelveticaOblique', boldItalic: 'HelveticaBoldOblique' },
+  times: { regular: 'TimesRoman', bold: 'TimesRomanBold', italic: 'TimesRomanItalic', boldItalic: 'TimesRomanBoldItalic' },
+  courier: { regular: 'Courier', bold: 'CourierBold', italic: 'CourierOblique', boldItalic: 'CourierBoldOblique' },
+};
+const FONT_CSS_STACK = {
+  helvetica: 'Helvetica, Arial, sans-serif',
+  times: "'Times New Roman', Times, serif",
+  courier: "'Courier New', Courier, monospace",
+};
+
+function classifyFontFamily(cssFontFamily) {
+  const f = (cssFontFamily || '').toLowerCase();
+  if (f.includes('monospace') || f.includes('courier') || f.includes('consolas')) return 'courier';
+  if (f.includes('sans-serif') || f.includes('helvetica') || f.includes('arial')) return 'helvetica';
+  if (f.includes('serif') || f.includes('times') || f.includes('georgia') || f.includes('garamond')) return 'times';
+  return 'helvetica';
+}
 
 const deleteObjectBtn = document.getElementById('deleteObjectBtn');
 const undoBtn = document.getElementById('undoBtn');
@@ -43,8 +69,8 @@ const editorDownloadBtn = document.getElementById('editorDownloadBtn');
 const imageFileInput = document.getElementById('imageFileInput');
 
 const toolDefaults = {
-  text: { color: '#1f2430', fontSize: 16 },
-  date: { color: '#1f2430', fontSize: 14 },
+  text: { color: '#1f2430', fontSize: 16, fontFamily: 'helvetica', bold: false, italic: false },
+  date: { color: '#1f2430', fontSize: 14, fontFamily: 'helvetica', bold: false, italic: false },
   whiteout: { color: '#ffffff' },
   highlight: { color: '#ffeb3b' },
   draw: { color: '#1f2430', strokeWidth: 3 },
@@ -367,6 +393,44 @@ fontSizeInput.addEventListener('input', () => {
 });
 fontSizeInput.addEventListener('change', () => pushHistory());
 
+fontFamilyInput.addEventListener('change', () => {
+  const family = fontFamilyInput.value;
+  const obj = getSelectedObject();
+  if (obj && obj.type in { text: 1, date: 1 }) {
+    obj.fontFamily = family;
+    applyTextFontCss(obj.el, obj);
+  } else {
+    toolDefaults[currentTool] && (toolDefaults[currentTool].fontFamily = family);
+  }
+  pushHistory();
+});
+
+boldToggleBtn.addEventListener('click', () => {
+  const obj = getSelectedObject();
+  if (obj && obj.type in { text: 1, date: 1 }) {
+    obj.bold = !obj.bold;
+    applyTextFontCss(obj.el, obj);
+    boldToggleBtn.classList.toggle('active', obj.bold);
+  } else if (toolDefaults[currentTool]) {
+    toolDefaults[currentTool].bold = !toolDefaults[currentTool].bold;
+    boldToggleBtn.classList.toggle('active', toolDefaults[currentTool].bold);
+  }
+  pushHistory();
+});
+
+italicToggleBtn.addEventListener('click', () => {
+  const obj = getSelectedObject();
+  if (obj && obj.type in { text: 1, date: 1 }) {
+    obj.italic = !obj.italic;
+    applyTextFontCss(obj.el, obj);
+    italicToggleBtn.classList.toggle('active', obj.italic);
+  } else if (toolDefaults[currentTool]) {
+    toolDefaults[currentTool].italic = !toolDefaults[currentTool].italic;
+    italicToggleBtn.classList.toggle('active', toolDefaults[currentTool].italic);
+  }
+  pushHistory();
+});
+
 colorInput.addEventListener('input', () => {
   const color = colorInput.value;
   const obj = getSelectedObject();
@@ -521,6 +585,12 @@ function handleOverlayMouseDown(e, pageNum, overlay) {
 
 // ---------- Text / Date ----------
 
+function applyTextFontCss(el, obj) {
+  el.style.fontFamily = FONT_CSS_STACK[obj.fontFamily] || FONT_CSS_STACK.helvetica;
+  el.style.fontWeight = obj.bold ? '700' : '400';
+  el.style.fontStyle = obj.italic ? 'italic' : 'normal';
+}
+
 function createTextObject(pageNum, overlay, x, y, isDate) {
   const id = 'obj-' + (++objectCounter);
   const defaults = toolDefaults[isDate ? 'date' : 'text'];
@@ -537,9 +607,11 @@ function createTextObject(pageNum, overlay, x, y, isDate) {
   const obj = {
     id, pageNum, type: isDate ? 'date' : 'text',
     x, y, fontSize: defaults.fontSize, color: defaults.color,
+    fontFamily: defaults.fontFamily, bold: defaults.bold, italic: defaults.italic,
     dateFormat: currentDateFormat,
     el,
   };
+  applyTextFontCss(el, obj);
 
   if (isDate) {
     el.textContent = formatDate(new Date(), currentDateFormat);
@@ -592,6 +664,37 @@ function sampleBackgroundColor(pageInfo, overlayX, overlayY) {
   }
 }
 
+// Picks the pixel within the text's bounding box that differs most from the sampled
+// background — a decent proxy for the glyph ink color without needing true OCR/vector data.
+function sampleInkColor(pageInfo, overlayX, overlayY, width, height, bgColorHex) {
+  try {
+    const canvas = pageInfo.canvasEl;
+    const scaleX = canvas.width / canvas.clientWidth;
+    const scaleY = canvas.height / canvas.clientHeight;
+    const px0 = Math.max(0, Math.round(overlayX * scaleX));
+    const py0 = Math.max(0, Math.round(overlayY * scaleY));
+    const pw = Math.max(1, Math.min(canvas.width - px0, Math.round(width * scaleX)));
+    const ph = Math.max(1, Math.min(canvas.height - py0, Math.round(height * scaleY)));
+    const data = canvas.getContext('2d').getImageData(px0, py0, pw, ph).data;
+    const bg = [
+      parseInt(bgColorHex.slice(1, 3), 16),
+      parseInt(bgColorHex.slice(3, 5), 16),
+      parseInt(bgColorHex.slice(5, 7), 16),
+    ];
+    let best = null;
+    let bestDist = -1;
+    for (let i = 0; i < data.length; i += 4) {
+      const r = data[i], g = data[i + 1], b = data[i + 2];
+      const dist = Math.abs(r - bg[0]) + Math.abs(g - bg[1]) + Math.abs(b - bg[2]);
+      if (dist > bestDist) { bestDist = dist; best = [r, g, b]; }
+    }
+    if (!best || bestDist < 40) return '#000000';
+    return `#${best.map(v => v.toString(16).padStart(2, '0')).join('')}`;
+  } catch (err) {
+    return '#000000';
+  }
+}
+
 function startTextEdit(span, pageNum, overlay) {
   const pageInfo = pages.find(p => p.pageNum === pageNum);
   if (!pageInfo) return;
@@ -602,10 +705,13 @@ function startTextEdit(span, pageNum, overlay) {
   const y = spanRect.top - overlayRect.top;
   const width = Math.max(20, spanRect.width);
   const height = Math.max(12, spanRect.height);
-  const fontSize = Math.round(parseFloat(getComputedStyle(span).fontSize)) || 14;
+  const computed = getComputedStyle(span);
+  const fontSize = Math.round(parseFloat(computed.fontSize)) || 14;
+  const fontFamily = classifyFontFamily(computed.fontFamily);
   const originalText = span.textContent;
 
   const coverColor = sampleBackgroundColor(pageInfo, x + 1, y + 1);
+  const color = sampleInkColor(pageInfo, x, y, width, height, coverColor);
 
   span.dataset.covered = 'true';
 
@@ -616,9 +722,9 @@ function startTextEdit(span, pageNum, overlay) {
   el.style.left = x + 'px';
   el.style.top = y + 'px';
   el.style.width = width + 'px';
-  el.style.height = height + 'px';
+  el.style.minHeight = height + 'px';
   el.style.fontSize = fontSize + 'px';
-  el.style.color = '#000000';
+  el.style.color = color;
   el.style.background = coverColor;
   el.textContent = originalText;
   el.dataset.id = id;
@@ -630,10 +736,12 @@ function startTextEdit(span, pageNum, overlay) {
 
   const obj = {
     id, pageNum, type: 'text',
-    x, y, width, height, fontSize, color: '#000000',
+    x, y, width, height, fontSize, color,
+    fontFamily, bold: false, italic: false,
     isTextEdit: true, coverColor, sourceSpan: span,
     el,
   };
+  applyTextFontCss(el, obj);
   objects.push(obj);
   attachObjectHandlers(obj, handle);
   selectObject(id);
@@ -1301,27 +1409,35 @@ function updateToolbarForSelection() {
   const type = obj ? obj.type : (PLACE_ON_CLICK.has(currentTool) || DRAG_TO_CREATE.has(currentTool) ? currentTool : null);
 
   const showFontSize = type === 'text' || type === 'date';
+  const showFontStyle = type === 'text' || type === 'date';
   const showStroke = type === 'draw' || type === 'line' || type === 'arrow';
   const showColor = type && type !== 'image' && type !== 'signature' && type !== 'initials';
   const showDateFormat = type === 'date';
 
+  fontFamilyField.style.display = showFontSize ? '' : 'none';
   fontSizeField.style.display = showFontSize ? '' : 'none';
+  fontStyleField.style.display = showFontStyle ? '' : 'none';
   strokeWidthField.style.display = showStroke ? '' : 'none';
   colorField.style.display = showColor ? '' : 'none';
   dateFormatField.style.display = showDateFormat ? '' : 'none';
 
+  fontFamilyInput.disabled = !showFontSize;
   fontSizeInput.disabled = !showFontSize;
+  boldToggleBtn.disabled = !showFontStyle;
+  italicToggleBtn.disabled = !showFontStyle;
   strokeWidthInput.disabled = !showStroke;
   colorInput.disabled = !showColor;
 
   if (obj) {
-    if (showFontSize) fontSizeInput.value = obj.fontSize;
+    if (showFontSize) { fontFamilyInput.value = obj.fontFamily || 'helvetica'; fontSizeInput.value = obj.fontSize; }
+    if (showFontStyle) { boldToggleBtn.classList.toggle('active', !!obj.bold); italicToggleBtn.classList.toggle('active', !!obj.italic); }
     if (showStroke) strokeWidthInput.value = obj.strokeWidth;
     if (showColor) colorInput.value = obj.color;
     if (showDateFormat) dateFormatInput.value = obj.dateFormat;
   } else if (type && toolDefaults[type]) {
     const d = toolDefaults[type];
-    if (showFontSize) fontSizeInput.value = d.fontSize;
+    if (showFontSize) { fontFamilyInput.value = d.fontFamily || 'helvetica'; fontSizeInput.value = d.fontSize; }
+    if (showFontStyle) { boldToggleBtn.classList.toggle('active', !!d.bold); italicToggleBtn.classList.toggle('active', !!d.italic); }
     if (showStroke) strokeWidthInput.value = d.strokeWidth;
     if (showColor) colorInput.value = d.color;
     if (showDateFormat) dateFormatInput.value = currentDateFormat;
@@ -1698,7 +1814,7 @@ function rebuildObject(data) {
     el.style.color = data.color;
     if (data.isTextEdit) {
       el.style.width = data.width + 'px';
-      el.style.height = data.height + 'px';
+      el.style.minHeight = data.height + 'px';
       el.style.background = data.coverColor;
       if (data.sourceSpan) data.sourceSpan.dataset.covered = 'true';
     }
@@ -1712,6 +1828,7 @@ function rebuildObject(data) {
       el.appendChild(handle);
     }
     const obj = Object.assign({}, data, { el });
+    applyTextFontCss(el, obj);
     objects.push(obj);
     attachObjectHandlers(obj, handle);
     return;
@@ -1880,11 +1997,24 @@ async function exportPdf() {
     // edits are drawn on top — otherwise edited pages would come out blank.
     const workDoc = srcDoc.isEncrypted ? await buildRasterDoc() : srcDoc;
 
-    const font = await workDoc.embedFont(StandardFonts.Helvetica);
     const pdfPages = workDoc.getPages();
     const imageCache = new Map();
+    const fontCache = new Map();
     const hasFormFields = objects.some(o => o.type === 'formtext' || o.type === 'formcheckbox');
     const form = hasFormFields ? workDoc.getForm() : null;
+
+    async function getFontForObject(obj) {
+      const family = obj.fontFamily || 'helvetica';
+      const bold = !!obj.bold;
+      const italic = !!obj.italic;
+      const key = `${family}|${bold}|${italic}`;
+      if (fontCache.has(key)) return fontCache.get(key);
+      const variants = FONT_VARIANTS[family] || FONT_VARIANTS.helvetica;
+      const variantName = bold && italic ? variants.boldItalic : bold ? variants.bold : italic ? variants.italic : variants.regular;
+      const embedded = await workDoc.embedFont(StandardFonts[variantName]);
+      fontCache.set(key, embedded);
+      return embedded;
+    }
 
     for (const obj of objects) {
       const pageInfo = pages.find(p => p.pageNum === obj.pageNum);
@@ -1903,6 +2033,7 @@ async function exportPdf() {
         }
         const text = (obj.el.textContent || '').replace(/\n+$/, '');
         if (!text.trim()) continue;
+        const objFont = await getFontForObject(obj);
         const fontSizePdf = obj.fontSize / scale;
         const lineHeight = fontSizePdf * 1.25;
         const x = obj.x / scale;
@@ -1912,7 +2043,7 @@ async function exportPdf() {
             x,
             y: pageInfo.pdfHeight - topY - fontSizePdf * 0.9 - i * lineHeight,
             size: fontSizePdf,
-            font,
+            font: objFont,
             color: hexToRgb(obj.color),
           });
         });

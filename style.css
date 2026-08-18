@@ -585,10 +585,42 @@ h1 {
   cursor: pointer;
 }
 
+.toolbar-field select {
+  padding: 4px 6px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 12.5px;
+  background: var(--surface);
+  color: var(--text);
+}
+
 .toolbar-field input:disabled,
-.toolbar-field input:disabled + input {
+.toolbar-field select:disabled,
+.toolbar-field button:disabled {
   opacity: 0.4;
   cursor: not-allowed;
+}
+
+.style-toggle-btn {
+  width: 26px;
+  height: 26px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  border-radius: 6px;
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.style-toggle-btn:not(:disabled):hover {
+  background: #f0f1f5;
+}
+
+.style-toggle-btn.active {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #fff;
 }
 
 .toolbar-spacer {
@@ -707,7 +739,9 @@ h1 {
 .edit-whiteout.selected .resize-handle,
 .edit-highlight.selected .resize-handle,
 .edit-icon.selected .resize-handle,
-.edit-image.selected .resize-handle {
+.edit-image.selected .resize-handle,
+.edit-text.text-edit.selected .resize-handle,
+.edit-formfield.selected .resize-handle {
   display: block;
 }
 
@@ -991,7 +1025,7 @@ h1 {
 
 .edit-text.text-edit {
   white-space: pre-wrap;
-  overflow: hidden;
+  overflow: visible;
 }
 
 /* ---- Create Forms field placeholders ---- */

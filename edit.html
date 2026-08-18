@@ -75,9 +75,20 @@
         <div class="toolbar-sep"></div>
 
         <div class="toolbar-group format-group">
+          <label class="toolbar-field" id="fontFamilyField">Font
+            <select id="fontFamilyInput" disabled>
+              <option value="helvetica">Helvetica</option>
+              <option value="times">Times</option>
+              <option value="courier">Courier</option>
+            </select>
+          </label>
           <label class="toolbar-field" id="fontSizeField">Size
             <input id="fontSizeInput" type="number" min="6" max="120" value="16" disabled>
           </label>
+          <div class="toolbar-field" id="fontStyleField">
+            <button type="button" id="boldToggleBtn" class="style-toggle-btn" disabled title="Bold"><strong>B</strong></button>
+            <button type="button" id="italicToggleBtn" class="style-toggle-btn" disabled title="Italic"><em>I</em></button>
+          </div>
           <label class="toolbar-field" id="strokeWidthField">Width
             <input id="strokeWidthInput" type="number" min="1" max="30" value="3" disabled>
           </label>
