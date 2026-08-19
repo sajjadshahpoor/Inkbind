@@ -5,6 +5,12 @@ const DISPLAY_WIDTH = 760; // fixed CSS px width pages are rendered at
 const HIGHLIGHT_OPACITY = 0.4;
 const MAX_HISTORY = 60;
 
+// Inkbind Server (see https://github.com/sajjadshahpoor/Inkbind-Server) does one thing the
+// client can't: reads the *actual* embedded font behind a run of text and reuses it when that
+// text is edited, instead of guessing one of 3 generic fonts. It's optional — if it's
+// unreachable, existing-text editing just falls back to the old guess-based approach below.
+const INKBIND_SERVER_URL = window.INKBIND_SERVER_URL || 'http://localhost:8000';
+
 const editorUpload = document.getElementById('editorUpload');
 const editorFileInput = document.getElementById('editorFileInput');
 const editorWorkspace = document.getElementById('editorWorkspace');
@@ -101,6 +107,8 @@ let historyStack = [];
 let historyIndex = -1;
 let suppressHistory = false;
 
+let serverSpansByPage = new Map(); // pageNum -> array of spans from Inkbind Server, or absent if unavailable
+
 // ---------- Upload ----------
 
 editorUpload.addEventListener('click', () => editorFileInput.click());
@@ -130,10 +138,12 @@ editorFileInput.addEventListener('change', () => {
 
 async function loadFile(f) {
   file = f;
+  serverSpansByPage = new Map();
   setStatus('Loading...');
+  let buf;
   try {
-    const buf = await f.arrayBuffer();
-    pdfjsDoc = await pdfjsLib.getDocument({ data: buf }).promise;
+    buf = await f.arrayBuffer();
+    pdfjsDoc = await pdfjsLib.getDocument({ data: buf.slice(0) }).promise;
   } catch (err) {
     console.error(err);
     setStatus('Failed to open this PDF. It may be corrupted.', true);
@@ -143,6 +153,7 @@ async function loadFile(f) {
   editorUpload.hidden = true;
   editorWorkspace.hidden = false;
   setStatus('');
+  loadServerSpans(buf).catch((err) => console.warn('Inkbind Server unavailable; existing-text edits will use best-guess styling.', err));
   await renderAllPages();
   currentMode = 'edit';
   modeTabs.forEach(t => t.classList.toggle('active', t.dataset.mode === 'edit'));
@@ -479,6 +490,7 @@ redoBtn.addEventListener('click', redo);
 editorClearBtn.addEventListener('click', () => {
   file = null;
   pdfjsDoc = null;
+  serverSpansByPage = new Map();
   pages = [];
   objects = [];
   objectCounter = 0;
@@ -650,6 +662,83 @@ function formatDate(d, fmt) {
   }
 }
 
+// ---------- Inkbind Server integration (style-preserving text edits) ----------
+
+async function loadServerSpans(arrayBuffer) {
+  const form = new FormData();
+  form.append('file', new Blob([arrayBuffer], { type: 'application/pdf' }), 'document.pdf');
+  const res = await fetch(`${INKBIND_SERVER_URL}/api/edit/extract-spans`, { method: 'POST', body: form });
+  if (!res.ok) throw new Error(`extract-spans failed: ${res.status}`);
+  const data = await res.json();
+  const byPage = new Map();
+  for (const page of data.pages) byPage.set(page.page_index + 1, page.spans);
+  serverSpansByPage = byPage;
+}
+
+function rgbFloatArrayToHex(rgbArr) {
+  return `#${rgbArr.map(v => Math.round(Math.max(0, Math.min(1, v)) * 255).toString(16).padStart(2, '0')).join('')}`;
+}
+
+function hexToRgbFloatArray(hex) {
+  const clean = hex.replace('#', '');
+  return [0, 2, 4].map(i => parseInt(clean.substring(i, i + 2), 16) / 255);
+}
+
+function rectOverlapRatio(a, b) {
+  const x0 = Math.max(a.x0, b.x0), y0 = Math.max(a.y0, b.y0);
+  const x1 = Math.min(a.x1, b.x1), y1 = Math.min(a.y1, b.y1);
+  if (x1 <= x0 || y1 <= y0) return 0;
+  const inter = (x1 - x0) * (y1 - y0);
+  const areaA = (a.x1 - a.x0) * (a.y1 - a.y0);
+  const areaB = (b.x1 - b.x0) * (b.y1 - b.y0);
+  return inter / Math.min(areaA, areaB);
+}
+
+// Finds the server-extracted span (with its real font metadata) that best matches a clicked
+// pdf.js text-layer span, by bounding-box overlap in PDF point space. Returns null if the
+// server hasn't responded yet, or nothing overlaps well enough to trust.
+function findMatchingServerSpan(pageNum, overlayRectPx, displayScale) {
+  const candidates = serverSpansByPage.get(pageNum);
+  if (!candidates || !candidates.length) return null;
+  const target = {
+    x0: overlayRectPx.x / displayScale,
+    y0: overlayRectPx.y / displayScale,
+    x1: (overlayRectPx.x + overlayRectPx.width) / displayScale,
+    y1: (overlayRectPx.y + overlayRectPx.height) / displayScale,
+  };
+  let best = null;
+  let bestScore = 0;
+  for (const span of candidates) {
+    const [x0, y0, x1, y1] = span.bbox;
+    const score = rectOverlapRatio(target, { x0, y0, x1, y1 });
+    if (score > bestScore) { bestScore = score; best = span; }
+  }
+  return bestScore >= 0.4 ? best : null;
+}
+
+// Sends the original PDF bytes + a batch of edits (by span id) to Inkbind Server, which
+// redacts each original run and redraws it with its real font, and returns the edited PDF.
+async function applyServerTextEdits(bytes, objs) {
+  const edits = objs.map(o => {
+    const pageInfo = pages.find(p => p.pageNum === o.pageNum);
+    const scale = pageInfo.displayScale;
+    return {
+      span_id: o.serverSpanId,
+      new_text: textTargetEl(o).textContent || '',
+      font_size: o.fontSize / scale,
+      color: hexToRgbFloatArray(o.color),
+      bold: !!o.bold,
+      italic: !!o.italic,
+    };
+  });
+  const form = new FormData();
+  form.append('file', new Blob([bytes], { type: 'application/pdf' }), 'document.pdf');
+  form.append('edits', JSON.stringify(edits));
+  const res = await fetch(`${INKBIND_SERVER_URL}/api/edit/apply-text-edits`, { method: 'POST', body: form });
+  if (!res.ok) throw new Error(`apply-text-edits failed: ${res.status}`);
+  return await res.arrayBuffer();
+}
+
 // ---------- Existing-text editing (click text detected by pdf.js) ----------
 
 function handleTextLayerClick(e, pageNum, overlay, textLayer) {
@@ -717,12 +806,19 @@ function startTextEdit(span, pageNum, overlay) {
   const width = Math.max(20, spanRect.width);
   const height = Math.max(12, spanRect.height);
   const computed = getComputedStyle(span);
-  const fontSize = Math.round(parseFloat(computed.fontSize)) || 14;
-  const fontFamily = classifyFontFamily(computed.fontFamily);
   const originalText = span.textContent;
 
+  // Prefer the real font metadata Inkbind Server read out of the PDF itself over the
+  // guess-from-rendered-CSS fallback below — it's exact instead of approximate.
+  const serverSpan = findMatchingServerSpan(pageNum, { x, y, width, height }, pageInfo.displayScale);
+
+  const fontSize = Math.round(parseFloat(computed.fontSize)) || 14;
+  const fontFamily = serverSpan ? serverSpan.family : classifyFontFamily(computed.fontFamily);
+  const bold = serverSpan ? serverSpan.bold : false;
+  const italic = serverSpan ? serverSpan.italic : false;
+
   const coverColor = sampleBackgroundColor(pageInfo, x + 1, y + 1);
-  const color = sampleInkColor(pageInfo, x, y, width, height, coverColor);
+  const color = serverSpan ? rgbFloatArrayToHex(serverSpan.color) : sampleInkColor(pageInfo, x, y, width, height, coverColor);
 
   span.dataset.covered = 'true';
 
@@ -769,8 +865,9 @@ function startTextEdit(span, pageNum, overlay) {
     id, pageNum, type: 'text',
     x, y, width, height, fontSize, color,
     coverX: x, coverY: y, coverWidth: width, coverHeight: height,
-    fontFamily, bold: false, italic: false,
+    fontFamily, bold, italic,
     isTextEdit: true, coverColor, sourceSpan: span, originalText,
+    serverSpanId: serverSpan ? serverSpan.id : null,
     el, textEl, coverEl,
   };
   applyTextFontCss(obj);
@@ -2546,7 +2643,28 @@ async function exportPdf() {
   setStatus('Preparing your PDF...');
 
   try {
-    const bytes = await file.arrayBuffer();
+    let bytes = await file.arrayBuffer();
+
+    // Style-preserving text edits go through Inkbind Server, and must happen before pdf-lib
+    // touches the file at all — the server needs the ORIGINAL bytes to find and reuse each
+    // span's real embedded font. Only edits still at their originally-detected position/size
+    // are eligible (a dragged/resized box means custom placement, which this path doesn't
+    // support) and only single-line edits (a server-matched span is always one line); anything
+    // else falls back to the existing client-side cover+redraw approach further below.
+    const serverEditableObjs = objects.filter(o =>
+      o.type === 'text' && o.isTextEdit && o.serverSpanId &&
+      o.x === o.coverX && o.y === o.coverY && o.width === o.coverWidth && o.height === o.coverHeight &&
+      !(textTargetEl(o).textContent || '').includes('\n')
+    );
+    if (serverEditableObjs.length) {
+      try {
+        bytes = await applyServerTextEdits(bytes, serverEditableObjs);
+        serverEditableObjs.forEach(o => { o.__serverApplied = true; });
+      } catch (err) {
+        console.warn('Inkbind Server text-edit pass failed; falling back to client-side rendering for existing-text edits.', err);
+      }
+    }
+
     const srcDoc = await PDFDocument.load(bytes, { ignoreEncryption: true });
 
     // pdf-lib can't decrypt existing content streams, so encrypted sources are
@@ -2563,7 +2681,7 @@ async function exportPdf() {
     // Best-effort: actually delete the original text this edit covers from the page's
     // content stream, instead of only visually hiding it. See the section above for why
     // this can't be done for every edit, and why that's safe (it just falls back).
-    const textEditObjects = objects.filter(o => o.type === 'text' && o.isTextEdit && !srcDoc.isEncrypted);
+    const textEditObjects = objects.filter(o => o.type === 'text' && o.isTextEdit && !srcDoc.isEncrypted && !o.__serverApplied);
     if (textEditObjects.length) {
       const editObjectsByPage = new Map();
       for (const obj of textEditObjects) {
@@ -2587,6 +2705,8 @@ async function exportPdf() {
     }
 
     for (const obj of objects) {
+      if (obj.__serverApplied) continue; // already baked into `bytes` above, with its real font
+
       const pageInfo = pages.find(p => p.pageNum === obj.pageNum);
       const pdfPage = pdfPages[obj.pageNum - 1];
       if (!pageInfo || !pdfPage) continue;

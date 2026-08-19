@@ -11,29 +11,28 @@
     <header>
       <a class="home-link" href="index.html">&larr; All tools</a>
       <h1>Privacy &amp; Cookie Policy</h1>
-      <p class="subtitle">Last updated: 18 August 2026</p>
+      <p class="subtitle">Last updated: 19 August 2026</p>
     </header>
 
     <main class="policy">
       <section>
         <h2>1. The short version</h2>
-        <p>Inkbind's PDF tools run entirely inside your browser. When you merge, edit, or sign a PDF, the file never leaves your device — nothing is uploaded to a server, because Inkbind doesn't have one to upload it to. This policy explains, in the detail EU/UK GDPR requires, exactly what little data is involved and what rights you have over it.</p>
+        <p>Most of Inkbind's PDF tools run entirely inside your browser — when you merge, split, convert, sign, or annotate a PDF, the file never leaves your device. One specific feature is the exception: editing text that's already in a PDF sends that file to Inkbind's own server, so it can preserve the document's original fonts instead of guessing. That server is ours (not a third party), holds nothing in memory beyond the length of your request, and is never used for any other tool. This policy explains, in the detail EU/UK GDPR requires, exactly what data is involved in each case and what rights you have over it.</p>
       </section>
 
       <section>
         <h2>2. Who is responsible for your data (data controller)</h2>
-        <p>Inkbind is designed and developed by Sajjad. For any privacy question or request, you can reach out via <a href="https://www.linkedin.com/in/sajjadshahpoor" target="_blank" rel="noopener noreferrer">LinkedIn</a>.</p>
+        <p>Inkbind is designed and developed by Sajjad, who also operates the Inkbind Server used by the existing-text-editing feature described below. For any privacy question or request, you can reach out via <a href="https://www.linkedin.com/in/sajjadshahpoor" target="_blank" rel="noopener noreferrer">LinkedIn</a>.</p>
       </section>
 
       <section>
         <h2>3. What data Inkbind processes</h2>
-        <p>Inkbind's tools (Merge, Edit &amp; Sign) process your PDF files locally, using JavaScript running in your own browser. Your documents are:</p>
+        <p>Inkbind's tools fall into two categories:</p>
         <ul>
-          <li>Never uploaded to Inkbind or any third party</li>
-          <li>Never transmitted over the network</li>
-          <li>Never seen, stored, or logged by us in any form</li>
+          <li><strong>Browser-only tools</strong> — Merge, Split, Convert, Compress, and everything in Edit &amp; Sign except editing pre-existing text (adding new text, signatures, whiteout, highlights, drawings, forms, deleting pages). These process your PDF entirely in JavaScript running on your own device. Your files are never uploaded, never transmitted over the network, and never seen, stored, or logged by us.</li>
+          <li><strong>Editing existing text</strong> — when you click on text already in a PDF to change it, the page and the file are sent to Inkbind's own server so it can read the document's real embedded font and reuse it, which a browser can't do reliably on its own. The server processes the file in memory only, returns the edited result, and does not write the file to disk, log its contents, retain it after the request completes, or share it with any third party. This only happens for that one action — every other edit you make stays local and is combined with the server's result on your device before you download.</li>
         </ul>
-        <p>Because your files never reach a server we control, Inkbind is not able to act as a data controller or processor for the contents of your documents — that responsibility remains entirely with you, on your own device.</p>
+        <p>For browser-only tools, your files never reach a server we control, so Inkbind is not a data controller or processor for that content — responsibility stays with you, on your device. For the existing-text-editing feature, Inkbind's server does transiently process your file as described above, making us a data processor for that specific, narrow flow.</p>
       </section>
 
       <section>
@@ -53,7 +52,7 @@
 
       <section>
         <h2>6. Data retention</h2>
-        <p>Since Inkbind holds no server-side data, there is no retention period on our end. Anything saved locally in your browser persists until you remove it yourself, clear your browsing data, or decline/withdraw consent for optional storage.</p>
+        <p>Inkbind's server (used only for editing existing text) does not persist your files: each PDF is held in memory only for the duration of that single request and is discarded immediately after the edited file is returned to your browser — nothing is written to disk or kept afterward. Anything saved locally in your browser persists until you remove it yourself, clear your browsing data, or decline/withdraw consent for optional storage.</p>
       </section>
 
       <section>
