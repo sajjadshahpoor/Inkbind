@@ -5,6 +5,10 @@ const BASE_DISPLAY_WIDTH = 760; // CSS px width pages are rendered at, before zo
 let DISPLAY_WIDTH = BASE_DISPLAY_WIDTH;
 let zoomPercent = 100;
 const ZOOM_LEVELS = [50, 75, 100, 125, 150, 175, 200];
+// Fit-to-width (initial load and the "Fit width" option) can legitimately need
+// to go below the lowest preset step on a narrow phone screen - ZOOM_LEVELS[0]
+// is only a floor for the +/- buttons and dropdown, not for actually fitting.
+const MIN_ZOOM = 20;
 const HIGHLIGHT_OPACITY = 0.4;
 const MAX_HISTORY = 60;
 
@@ -164,7 +168,7 @@ async function loadFile(f) {
   // margins unused on a wide window.
   const availableWidth = pagesContainer.clientWidth - 32;
   zoomPercent = availableWidth > 0
-    ? Math.max(ZOOM_LEVELS[0], Math.min(ZOOM_LEVELS[ZOOM_LEVELS.length - 1], Math.round((availableWidth / BASE_DISPLAY_WIDTH) * 100)))
+    ? Math.max(MIN_ZOOM, Math.min(ZOOM_LEVELS[ZOOM_LEVELS.length - 1], Math.round((availableWidth / BASE_DISPLAY_WIDTH) * 100)))
     : 100;
   DISPLAY_WIDTH = Math.round(BASE_DISPLAY_WIDTH * zoomPercent / 100);
 
@@ -276,7 +280,7 @@ function scaleSnapshotGeometry(snap, ratio) {
 }
 
 async function setZoom(newPercent) {
-  const clamped = Math.max(ZOOM_LEVELS[0], Math.min(ZOOM_LEVELS[ZOOM_LEVELS.length - 1], Math.round(newPercent)));
+  const clamped = Math.max(MIN_ZOOM, Math.min(ZOOM_LEVELS[ZOOM_LEVELS.length - 1], Math.round(newPercent)));
   if (!pdfjsDoc || clamped === zoomPercent) { updateZoomUi(); return; }
 
   const ratio = clamped / zoomPercent;
@@ -298,7 +302,7 @@ async function setZoom(newPercent) {
 
 function updateZoomUi() {
   zoomSelect.value = ZOOM_LEVELS.includes(zoomPercent) ? String(zoomPercent) : 'custom';
-  zoomOutBtn.disabled = zoomPercent <= ZOOM_LEVELS[0];
+  zoomOutBtn.disabled = zoomPercent <= MIN_ZOOM;
   zoomInBtn.disabled = zoomPercent >= ZOOM_LEVELS[ZOOM_LEVELS.length - 1];
 }
 
@@ -309,7 +313,9 @@ function fitWidth() {
 
 zoomOutBtn.addEventListener('click', () => {
   const lower = [...ZOOM_LEVELS].reverse().find(l => l < zoomPercent);
-  setZoom(lower !== undefined ? lower : ZOOM_LEVELS[0]);
+  // Already below every preset (e.g. a narrow-phone fit-to-width) - step down
+  // by a fixed amount instead of jumping back up to the lowest preset.
+  setZoom(lower !== undefined ? lower : Math.max(MIN_ZOOM, zoomPercent - 25));
 });
 
 zoomInBtn.addEventListener('click', () => {

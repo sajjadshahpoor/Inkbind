@@ -199,6 +199,13 @@ body.workspace-active .site-footer {
 .tool-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  min-width: 0;
+  /* Auto left/right margins (for centering below) are cross-axis margins on
+     a flex item (.app is a column flex container) - that disables stretch
+     and sizes this to its own unconstrained content width instead, which
+     is wide enough for 2 columns even on a narrow phone screen. An explicit
+     width gives it a definite size to shrink correctly instead. */
+  width: 100%;
   gap: 20px;
   max-width: 720px;
   margin: 0 auto 20px;
@@ -249,6 +256,10 @@ body.workspace-active .site-footer {
   display: flex;
   align-items: flex-start;
   gap: 24px;
+  /* .workspace is itself a flex item of .app (column direction) - without
+     this it keeps its children's full intrinsic width instead of shrinking
+     to the available width on narrow/mobile viewports. */
+  min-width: 0;
 }
 
 .grid-column {
@@ -287,6 +298,7 @@ body.workspace-active .site-footer {
   margin: 22px 0 0;
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  min-width: 0;
   gap: 14px;
 }
 
@@ -714,6 +726,7 @@ body.workspace-active .site-footer {
 .result-file-list {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  min-width: 0;
   gap: 12px;
 }
 
@@ -1101,6 +1114,13 @@ body.workspace-active .site-footer {
 @media (max-width: 860px) {
   .workspace {
     flex-direction: column;
+    /* .workspace's default align-items:flex-start only makes sense for the
+       desktop side-by-side layout (so the sticky preview panel isn't
+       stretched tall). Once stacked into a column, that same flex-start
+       stops children from stretching to the full available width, so they
+       fall back to their own unconstrained content width instead - which
+       is what was causing the whole page to scroll horizontally on phones. */
+    align-items: stretch;
   }
 
   .preview-panel {
@@ -1177,6 +1197,7 @@ body:not(.toolbar-hidden) #viewerPrintBtn {
 
 .mode-tabs {
   display: flex;
+  flex-wrap: wrap;
   gap: 4px;
   padding: 10px 16px 0;
   border-bottom: 1px solid var(--border);
