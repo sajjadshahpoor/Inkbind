@@ -4,12 +4,72 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Edit &amp; Sign PDF – Inkbind</title>
+<link rel="icon" type="image/png" href="icon.png">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
+  <nav class="app-rail">
+    <a class="app-rail-brand" href="index.html" title="Inkbind">I</a>
+    <a class="app-rail-btn" href="index.html" title="Home">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 11.5L12 4l9 7.5M5 10v9a1 1 0 001 1h4v-6h4v6h4a1 1 0 001-1v-9" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </a>
+    <div class="app-rail-sep"></div>
+    <a class="app-rail-btn" href="merge.html" title="Merge PDFs">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M7 3v14a2 2 0 002 2h8M7 3H5a2 2 0 00-2 2v14a2 2 0 002 2h2M7 3h8a2 2 0 012 2v4m-6 4h8m-4-4v8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </a>
+    <a class="app-rail-btn active" href="edit.html" title="Edit &amp; Sign PDF">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 20h9M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </a>
+    <a class="app-rail-btn" href="split.html" title="Split PDF">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><line x1="20" y1="4" x2="8.12" y2="15.88" stroke-linecap="round"/><line x1="14.47" y1="14.48" x2="20" y2="20" stroke-linecap="round"/><line x1="8.12" y1="8.12" x2="12" y2="12" stroke-linecap="round"/></svg>
+    </a>
+    <a class="app-rail-btn" href="convert.html" title="Convert from PDF">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 12a9 9 0 11-3.5-7.11" stroke-linecap="round" stroke-linejoin="round"/><path d="M21 3v6h-6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </a>
+    <a class="app-rail-btn" href="to-pdf.html" title="Convert to PDF">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 12a9 9 0 113.5 7.11" stroke-linecap="round" stroke-linejoin="round"/><path d="M3 21v-6h6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </a>
+    <a class="app-rail-btn" href="compress.html" title="Compress PDF">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 9V5a1 1 0 011-1h4M4 15v4a1 1 0 001 1h4M20 9V5a1 1 0 00-1-1h-4M20 15v4a1 1 0 01-1 1h-4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </a>
+
+    <div class="app-rail-spacer"></div>
+    <div class="app-rail-menu">
+      <button id="appRailHelpBtn" class="app-rail-btn" title="Help" aria-haspopup="true" aria-expanded="false">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 015.83 1c0 2-3 2-3 4" stroke-linecap="round" stroke-linejoin="round"/><line x1="12" y1="17" x2="12.01" y2="17" stroke-linecap="round"/></svg>
+      </button>
+      <div id="appRailHelpMenu" class="shell-menu-dropdown app-rail-menu-dropdown" hidden>
+        <a href="https://github.com/sajjadshahpoor/Inkbind-Desktop" target="_blank" rel="noopener noreferrer" class="shell-menu-item">Get Desktop App</a>
+        <div class="shell-menu-sep"></div>
+        <button id="appRailAboutBtn" class="shell-menu-item">About Inkbind</button>
+        <a href="privacy.html" class="shell-menu-item">Privacy Policy</a>
+      </div>
+    </div>
+  </nav>
+
+  <div id="aboutModal" class="modal-overlay" hidden>
+    <div class="modal about-modal">
+      <div class="modal-header">
+        <h2>About Inkbind</h2>
+        <button id="aboutModalCloseBtn" class="modal-close" aria-label="Close">&times;</button>
+      </div>
+      <div class="about-modal-body">
+        <div class="about-modal-icon">I</div>
+        <p class="about-modal-name">Inkbind</p>
+        <p class="about-modal-version">Web</p>
+        <p class="about-modal-tagline">Merge, split, convert, compress, edit and sign PDFs, entirely in your browser.</p>
+        <p class="about-modal-copyright">&copy; 2026 The Inkbind. All rights reserved.</p>
+        <p class="about-modal-credit">Designed &amp; Developed by <a href="https://www.linkedin.com/in/sajjadshahpoor" target="_blank" rel="noopener noreferrer">Sajjad</a></p>
+      </div>
+      <div class="modal-footer">
+        <button id="aboutModalOkBtn" class="btn btn-primary">OK</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="app-main">
   <div class="app editor-app">
     <header>
-      <a class="home-link" href="index.html">&larr; All tools</a>
       <h1>Edit &amp; Sign PDF</h1>
       <p class="subtitle">Add text, sign, initial, date-stamp, whiteout, highlight, draw and stamp your PDF, then download.</p>
     </header>
@@ -25,13 +85,34 @@
     </div>
 
     <div id="editorWorkspace" class="editor-workspace" hidden>
-      <div class="mode-tabs">
-        <button class="mode-tab active" data-mode="edit">Edit</button>
-        <button class="mode-tab" data-mode="fillsign">Fill &amp; Sign</button>
-        <button class="mode-tab" data-mode="forms">Create Forms</button>
-        <button class="mode-tab" data-mode="deletepages">Delete Pages</button>
+      <div class="editor-mini-topbar">
+        <button id="editorToggleBtn" class="toolbar-toggle-btn primary-cta">Edit</button>
+        <div class="editor-mini-topbar-spacer"></div>
+        <button id="viewerPrintBtn" class="btn btn-secondary">Print</button>
+        <button id="viewerDownloadBtn" class="btn btn-primary">Download PDF</button>
       </div>
 
+      <div class="editor-body">
+      <div class="mode-tabs">
+        <button class="mode-tab active" data-mode="edit">
+          <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 20h9M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <span>Edit</span>
+        </button>
+        <button class="mode-tab" data-mode="fillsign">
+          <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9 11l3 3L22 4M12 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <span>Fill &amp; Sign</span>
+        </button>
+        <button class="mode-tab" data-mode="forms">
+          <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 9h10M7 13h6" stroke-linecap="round"/></svg>
+          <span>Forms</span>
+        </button>
+        <button class="mode-tab" data-mode="deletepages">
+          <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 6h18M8 6V4a1 1 0 011-1h6a1 1 0 011 1v2m3 0v14a1 1 0 01-1 1H7a1 1 0 01-1-1V6h12z" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <span>Pages</span>
+        </button>
+      </div>
+
+      <div class="editor-main">
       <div id="canvasToolbar" class="editor-toolbar">
         <div class="toolbar-group">
           <button id="toolSelect" class="tool-btn active" data-tool="select" title="Select, move, or click existing text to edit it">Select</button>
@@ -112,10 +193,32 @@
         <div class="toolbar-spacer"></div>
 
         <button id="editorClearBtn" class="btn btn-secondary">Start over</button>
+        <button id="editorPrintBtn" class="btn btn-secondary">Print</button>
         <button id="editorDownloadBtn" class="btn btn-primary">Download PDF</button>
       </div>
 
-      <div id="pagesContainer" class="pages-container"></div>
+      <div class="canvas-area">
+        <div id="pagesContainer" class="pages-container"></div>
+        <div class="zoom-pill">
+          <button id="zoomOutBtn" class="icon-btn" title="Zoom out">&minus;</button>
+          <select id="zoomSelect" class="zoom-select" title="Zoom level">
+            <option value="50">50%</option>
+            <option value="75">75%</option>
+            <option value="100" selected>100%</option>
+            <option value="125">125%</option>
+            <option value="150">150%</option>
+            <option value="175">175%</option>
+            <option value="200">200%</option>
+            <option value="fit">Fit width</option>
+            <option value="custom" hidden>Custom</option>
+          </select>
+          <button id="zoomInBtn" class="icon-btn" title="Zoom in">+</button>
+          <div class="zoom-pill-sep"></div>
+          <button id="pagePrevBtn" class="icon-btn" title="Previous page">&uarr;</button>
+          <span id="pageIndicator" class="page-indicator">0 / 0</span>
+          <button id="pageNextBtn" class="icon-btn" title="Next page">&darr;</button>
+        </div>
+      </div>
 
       <div id="deletePagesView" class="delete-pages-view" hidden>
         <p class="delete-pages-hint">Click a page to mark it for deletion, then confirm below. This clears any edits, signatures, or fields you've placed.</p>
@@ -124,6 +227,8 @@
           <span id="deletePagesCount" class="delete-pages-count">0 pages selected</span>
           <button id="deletePagesBtn" class="btn btn-danger" disabled>Delete selected pages</button>
         </div>
+      </div>
+      </div>
       </div>
     </div>
 
@@ -138,6 +243,7 @@
         Designed &amp; Developed by <a href="https://www.linkedin.com/in/sajjadshahpoor" target="_blank" rel="noopener noreferrer">Sajjad</a>
       </p>
     </footer>
+  </div>
   </div>
 
   <input type="file" id="imageFileInput" accept="image/png,image/jpeg" hidden>
@@ -206,7 +312,10 @@
 
   <script src="lib/pdf-lib.min.js"></script>
   <script src="lib/pdf.min.js"></script>
+  <script src="desktop-save.js"></script>
+  <script src="pdf-print.js"></script>
   <script src="edit.js"></script>
+  <script src="help-menu.js"></script>
   <script src="cookie-consent.js"></script>
 </body>
 </html>

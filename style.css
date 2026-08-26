@@ -8,6 +8,9 @@
   --primary-hover: #4338ca;
   --danger: #dc2626;
   --radius: 10px;
+  --rail-width: 64px;
+  --rail-bg: #23263a;
+  --rail-icon: #9295b3;
 }
 
 * { box-sizing: border-box; }
@@ -17,6 +20,97 @@ body {
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   background: var(--bg);
   color: var(--text);
+  min-height: 100vh;
+}
+
+/* ---- App rail ----
+   A persistent left-edge tool switcher: always visible, one icon per tool,
+   current tool highlighted. Present (as a copy of the same markup) on every
+   page so switching tools never requires a detour through the home grid. */
+.app-rail {
+  position: fixed;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: var(--rail-width);
+  background: var(--rail-bg);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 14px 0;
+  gap: 4px;
+  z-index: 60;
+}
+
+.app-rail-brand {
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+  background: var(--primary);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 15px;
+  margin-bottom: 16px;
+  text-decoration: none;
+  flex-shrink: 0;
+}
+
+.app-rail-btn {
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--rail-icon);
+  text-decoration: none;
+  flex-shrink: 0;
+}
+
+.app-rail-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+}
+
+.app-rail-btn.active {
+  background: rgba(124, 116, 237, 0.35);
+  color: #fff;
+}
+
+.app-rail-sep {
+  width: 28px;
+  height: 1px;
+  background: rgba(255, 255, 255, 0.12);
+  margin: 6px 0;
+  flex-shrink: 0;
+}
+
+/* Pushes the Help menu below to the bottom of the rail. */
+.app-rail-spacer {
+  flex: 1;
+}
+
+.app-rail-menu {
+  position: relative;
+  flex-shrink: 0;
+}
+
+/* Opens to the right of the rail icon rather than below it (like
+   .shell-menu-dropdown, which it otherwise shares all styling with) - the
+   rail sits at the left edge of the window with icons stacked to the
+   bottom, so there usually isn't room below the Help icon for a dropdown. */
+.shell-menu-dropdown.app-rail-menu-dropdown {
+  top: auto;
+  right: auto;
+  left: calc(100% + 8px);
+  bottom: 0;
+}
+
+.app-main {
+  margin-left: var(--rail-width);
   display: flex;
   justify-content: center;
   padding: 40px 20px 24px;
@@ -56,6 +150,50 @@ h1 {
 
 .home-link:hover {
   color: var(--primary);
+}
+
+/* Once a PDF is loaded in the editor, the marketing header just eats space a
+   reader wants for the page - collapse it and tighten the page padding in
+   favor of the editor's own mini-topbar (see edit.html) doing that job. */
+body.workspace-active .app-main {
+  padding: 16px 20px 24px;
+}
+
+body.workspace-active .editor-app {
+  /* The rest of the site caps .app at 1180px so text-heavy pages stay
+     readable, but a PDF viewer should use whatever width the window
+     actually has. */
+  max-width: none;
+}
+
+body.workspace-active .editor-app > header {
+  display: none;
+}
+
+/* Leaves clear room below the page content for the floating zoom pill (see
+   .zoom-pill) so it's never pushed off the bottom of the window. */
+body.workspace-active .pages-container {
+  max-height: 74vh;
+}
+
+/* "Hide tools" collapses the tab/tool row for a distraction-free, full-width
+   read - only the mini-topbar (Edit/Done, Save, Print) and the floating zoom
+   pill stay, so there's always a way back in. */
+body.toolbar-hidden .mode-tabs,
+body.toolbar-hidden .editor-toolbar {
+  display: none;
+}
+
+body.toolbar-hidden .pages-container {
+  max-height: 94vh;
+}
+
+/* The site footer is marketing chrome for browsing the app's other pages -
+   once a document is open it's just wasted vertical space with nothing a
+   reader needs; Privacy Policy / the credit line now live in the Help menu
+   (see .app-rail-menu) instead, reachable from anywhere. */
+body.workspace-active .site-footer {
+  display: none;
 }
 
 .tool-grid {
@@ -850,6 +988,116 @@ h1 {
   border-top: 1px solid var(--border);
 }
 
+/* About Inkbind (Help menu) - reuses the same modal chrome as the sign
+   modal (.modal-overlay/.modal/.modal-header/.modal-close/.modal-footer)
+   but far narrower, since it's just a few lines of app info. */
+.modal.about-modal {
+  max-width: 340px;
+}
+
+.about-modal-body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 8px 24px 24px;
+}
+
+.about-modal-icon {
+  width: 56px;
+  height: 56px;
+  border-radius: 14px;
+  background: var(--primary);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 24px;
+  margin-bottom: 12px;
+}
+
+.about-modal-name {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.about-modal-version {
+  margin: 2px 0 10px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.about-modal-tagline {
+  margin: 0 0 14px;
+  font-size: 12.5px;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+.about-modal-copyright,
+.about-modal-credit {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.about-modal-credit {
+  margin-top: 4px;
+}
+
+.about-modal-credit a {
+  color: var(--text-muted);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.about-modal-credit a:hover {
+  color: var(--primary);
+}
+
+/* ---- Help menu dropdown (app-rail) ---- */
+
+.shell-menu-dropdown {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  min-width: 190px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(20, 22, 40, 0.16);
+  padding: 6px;
+  z-index: 70;
+}
+
+.shell-menu-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: none;
+  background: none;
+  color: var(--text);
+  padding: 8px 10px;
+  border-radius: 6px;
+  font-size: 13px;
+  cursor: pointer;
+  white-space: nowrap;
+  text-decoration: none;
+  box-sizing: border-box;
+}
+
+.shell-menu-item:hover {
+  background: #f0f1f5;
+}
+
+.shell-menu-sep {
+  height: 1px;
+  background: var(--border);
+  margin: 6px 4px;
+}
+
 @media (max-width: 860px) {
   .workspace {
     flex-direction: column;
@@ -872,6 +1120,59 @@ h1 {
   border: 1px solid var(--border);
   border-radius: var(--radius);
   overflow: hidden;
+}
+
+/* Always-visible slim topbar: Edit/Done toggle + Save/Print stay reachable
+   even when the tab/tool rows below are hidden by the reading view (see
+   body.toolbar-hidden). */
+.editor-mini-topbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.editor-mini-topbar-spacer {
+  flex: 1;
+}
+
+/* The mini-topbar's own Save/Print are only needed in the reading view,
+   where the tab/tool row (with its own Save/Print) is hidden - once tools
+   are shown, hide these so there's only one Save and one Print button. */
+body:not(.toolbar-hidden) #viewerDownloadBtn,
+body:not(.toolbar-hidden) #viewerPrintBtn {
+  display: none;
+}
+
+.toolbar-toggle-btn {
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.toolbar-toggle-btn:hover {
+  background: #f0f1f5;
+}
+
+/* Prominent while viewing (the "Edit" call to action, like Acrobat Reader's
+   Edit PDF button) - dropped once the tools are showing, so it doesn't
+   compete with them for attention. */
+.toolbar-toggle-btn.primary-cta {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #fff;
+  padding: 6px 16px;
+}
+
+.toolbar-toggle-btn.primary-cta:hover {
+  background: var(--primary-hover);
 }
 
 .mode-tabs {
@@ -900,6 +1201,67 @@ h1 {
 .mode-tab.active {
   color: var(--primary);
   border-bottom-color: var(--primary);
+}
+
+/* Edit / Fill & Sign / Forms / Delete Pages, as a right-side vertical tool
+   rail (icon over label, current one highlighted) rather than horizontal
+   tabs. Scoped to .editor-body so it doesn't affect the unrelated
+   .mode-tabs other tool pages use for their own (horizontal-tab) mode
+   switchers. */
+.editor-body {
+  display: flex;
+  flex-direction: row-reverse;
+  min-height: 0;
+  flex: 1;
+}
+
+.editor-body .mode-tabs {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  flex: 0 0 76px;
+  gap: 4px;
+  padding: 12px 8px;
+  border-bottom: none;
+  background: #fafafd;
+  border-left: 1px solid var(--border);
+  overflow-y: auto;
+}
+
+.editor-body .mode-tab {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  border-radius: 8px;
+  border-bottom: none;
+  margin-bottom: 0;
+  padding: 10px 4px;
+  font-size: 11px;
+  text-align: center;
+  line-height: 1.15;
+}
+
+.editor-body .mode-tab svg {
+  flex-shrink: 0;
+}
+
+.editor-body .mode-tab:hover {
+  background: #f0f1f5;
+  color: var(--text);
+}
+
+.editor-body .mode-tab.active {
+  background: var(--primary);
+  color: #fff;
+  border-bottom-color: transparent;
+}
+
+.editor-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 .editor-toolbar {
@@ -1025,9 +1387,91 @@ h1 {
   flex: 1;
 }
 
+/* Zoom + page navigation as a floating, semi-opaque pill centered over the
+   bottom of the canvas, detached from the top bar. */
+.canvas-area {
+  position: relative;
+}
+
+.zoom-pill {
+  position: absolute;
+  left: 50%;
+  bottom: 18px;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  background: rgba(35, 38, 58, 0.92);
+  border-radius: 999px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25);
+  z-index: 20;
+}
+
+.icon-btn {
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  border-radius: 6px;
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.icon-btn:not(:disabled):hover {
+  background: #f0f1f5;
+}
+
+.icon-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.zoom-select {
+  padding: 5px 6px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 12.5px;
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.page-indicator {
+  font-size: 12.5px;
+  color: var(--text-muted);
+  min-width: 52px;
+  text-align: center;
+}
+
+.zoom-pill .icon-btn,
+.zoom-pill .zoom-select {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.15);
+  color: #fff;
+}
+
+.zoom-pill .icon-btn:not(:disabled):hover {
+  background: rgba(255, 255, 255, 0.18);
+}
+
+.zoom-pill .page-indicator {
+  color: #d7d8e6;
+}
+
+.zoom-pill-sep {
+  width: 1px;
+  height: 20px;
+  background: rgba(255, 255, 255, 0.18);
+  margin: 0 2px;
+}
+
 .pages-container {
   max-height: 75vh;
   overflow-y: auto;
+  scroll-behavior: smooth;
   background: #e9eaf0;
   padding: 28px 0;
   display: flex;
@@ -1042,13 +1486,24 @@ h1 {
 }
 
 .pages-container.tool-whiteout .page-overlay,
-.pages-container.tool-highlight .page-overlay,
 .pages-container.tool-draw .page-overlay,
 .pages-container.tool-line .page-overlay,
 .pages-container.tool-arrow .page-overlay,
 .pages-container.tool-checkmark .page-overlay,
 .pages-container.tool-cross .page-overlay {
   cursor: crosshair;
+}
+
+/* Highlight only ever covers actual text (like Acrobat's highlighter, not a
+   free rectangle): the overlay steps out of the way so a drag becomes a
+   real text selection on the layer below instead of a box-drag. */
+.pages-container.tool-highlight .page-overlay {
+  pointer-events: none;
+}
+
+.pages-container.tool-highlight .text-layer span {
+  pointer-events: auto;
+  cursor: text;
 }
 
 .page-wrap {
@@ -1619,6 +2074,13 @@ main {
   box-shadow: 0 12px 32px rgba(15, 17, 23, 0.18);
 }
 
+/* The editor's floating zoom pill sits at the bottom of the canvas (see
+   .zoom-pill) - lift the cookie banner above it so a first-time visitor to
+   the editor doesn't have the banner covering the zoom/page controls. */
+body.workspace-active .cookie-banner {
+  bottom: 84px;
+}
+
 .cookie-banner-text {
   flex: 1 1 320px;
   margin: 0;
@@ -1724,4 +2186,49 @@ main {
   left: 0;
   right: 0;
   height: 1px;
+}
+
+/* ---- Print (see pdf-print.js) ---- */
+/* #printContainer holds one .print-page per page (rendered from the final,
+   edits-baked-in PDF), kept out of the normal layout entirely and only
+   shown for the print stylesheet below, so it can never affect on-screen
+   layout. */
+#printContainer {
+  display: none;
+}
+
+@media print {
+  /* A real margin, not 0 - when the print dialog's Scale is set to "Actual
+     size" (no auto-shrink-to-fit), content sized to the *full* page bleeds
+     past the printer's actual printable area, which pushes the overflowing
+     sliver onto a second, blank-looking page. */
+  @page {
+    margin: 0.4in;
+  }
+
+  body > *:not(#printContainer) {
+    display: none !important;
+  }
+
+  #printContainer {
+    display: block !important;
+  }
+
+  /* Each page image is sized explicitly (in real inches, by pdf-print.js) to
+     its own true physical size, capped to fit - not stretched to fill the
+     page - so it's centered here rather than filling the .print-page box. */
+  #printContainer .print-page {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    break-after: page;
+  }
+
+  #printContainer .print-page:last-child {
+    break-after: auto;
+  }
+
+  #printContainer .print-page img {
+    display: block;
+  }
 }

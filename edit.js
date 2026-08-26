@@ -1,7 +1,10 @@
 const { PDFDocument, StandardFonts, rgb, LineCapStyle, BlendMode, PDFName, PDFArray, PDFRawStream } = PDFLib;
 pdfjsLib.GlobalWorkerOptions.workerSrc = 'lib/pdf.worker.min.js';
 
-const DISPLAY_WIDTH = 760; // fixed CSS px width pages are rendered at
+const BASE_DISPLAY_WIDTH = 760; // CSS px width pages are rendered at, before zoom
+let DISPLAY_WIDTH = BASE_DISPLAY_WIDTH;
+let zoomPercent = 100;
+const ZOOM_LEVELS = [50, 75, 100, 125, 150, 175, 200];
 const HIGHLIGHT_OPACITY = 0.4;
 const MAX_HISTORY = 60;
 
@@ -10,6 +13,16 @@ const editorFileInput = document.getElementById('editorFileInput');
 const editorWorkspace = document.getElementById('editorWorkspace');
 const pagesContainer = document.getElementById('pagesContainer');
 const editorStatus = document.getElementById('editorStatus');
+
+const editorToggleBtn = document.getElementById('editorToggleBtn');
+const viewerDownloadBtn = document.getElementById('viewerDownloadBtn');
+const viewerPrintBtn = document.getElementById('viewerPrintBtn');
+const zoomOutBtn = document.getElementById('zoomOutBtn');
+const zoomInBtn = document.getElementById('zoomInBtn');
+const zoomSelect = document.getElementById('zoomSelect');
+const pagePrevBtn = document.getElementById('pagePrevBtn');
+const pageNextBtn = document.getElementById('pageNextBtn');
+const pageIndicator = document.getElementById('pageIndicator');
 
 const toolButtons = Array.from(document.querySelectorAll('.tool-btn[data-tool]'));
 const PLACE_ON_CLICK = new Set(['text', 'date', 'checkmark', 'cross', 'formtext', 'formcheckbox']);
@@ -66,6 +79,7 @@ const undoBtn = document.getElementById('undoBtn');
 const redoBtn = document.getElementById('redoBtn');
 const editorClearBtn = document.getElementById('editorClearBtn');
 const editorDownloadBtn = document.getElementById('editorDownloadBtn');
+const editorPrintBtn = document.getElementById('editorPrintBtn');
 const imageFileInput = document.getElementById('imageFileInput');
 
 const toolDefaults = {
@@ -142,12 +156,28 @@ async function loadFile(f) {
 
   editorUpload.hidden = true;
   editorWorkspace.hidden = false;
+  document.body.classList.add('workspace-active');
+  setToolbarHidden(true);
+
+  // Default to fitting the page to the available width, like Acrobat does on
+  // open, instead of a fixed size that leaves a full-width viewer's side
+  // margins unused on a wide window.
+  const availableWidth = pagesContainer.clientWidth - 32;
+  zoomPercent = availableWidth > 0
+    ? Math.max(ZOOM_LEVELS[0], Math.min(ZOOM_LEVELS[ZOOM_LEVELS.length - 1], Math.round((availableWidth / BASE_DISPLAY_WIDTH) * 100)))
+    : 100;
+  DISPLAY_WIDTH = Math.round(BASE_DISPLAY_WIDTH * zoomPercent / 100);
+
   setStatus('');
   await renderAllPages();
+  updateZoomUi();
+  updatePageIndicator();
   currentMode = 'edit';
   modeTabs.forEach(t => t.classList.toggle('active', t.dataset.mode === 'edit'));
   applyModeVisibility();
-  currentTool = 'select';
+  // Reading view (the default on open - see setToolbarHidden above): only
+  // highlighting is allowed, so land on that tool instead of Select.
+  currentTool = document.body.classList.contains('toolbar-hidden') ? 'highlight' : 'select';
   updateToolButtons();
   resetHistory();
 }
@@ -220,6 +250,131 @@ async function renderPage(pageNum) {
 
   textLayer.addEventListener('click', (e) => handleTextLayerClick(e, pageNum, overlay, textLayer));
 }
+
+// ---------- Zoom ----------
+//
+// Every placed object's geometry (x/y/width/height/fontSize/strokeWidth/points, ...) is
+// stored in screen px at the page's current DISPLAY_WIDTH (see rebuildObject) - there's no
+// zoom-independent "pdf space" representation kept around at edit time. So changing zoom
+// means: snapshot the current objects, scale every geometry field by the ratio between old
+// and new DISPLAY_WIDTH, re-render all pages at the new size, then rebuild the objects from
+// the rescaled snapshot - reusing the same serialize/rebuild pair undo/redo already relies on.
+// History is reset after a zoom change: the old historyStack's snapshots are still in the
+// previous scale, and un/redoing across a zoom boundary would misplace objects, so zooming
+// establishes a fresh baseline rather than risk that.
+
+function scaleSnapshotGeometry(snap, ratio) {
+  const GEOMETRY_KEYS = ['x', 'y', 'width', 'height', 'fontSize', 'strokeWidth', 'x1', 'y1', 'x2', 'y2', 'coverX', 'coverY', 'coverWidth', 'coverHeight'];
+  for (const obj of snap.objects) {
+    for (const k of GEOMETRY_KEYS) {
+      if (typeof obj[k] === 'number') obj[k] *= ratio;
+    }
+    if (Array.isArray(obj.points)) {
+      obj.points = obj.points.map(p => ({ x: p.x * ratio, y: p.y * ratio }));
+    }
+  }
+}
+
+async function setZoom(newPercent) {
+  const clamped = Math.max(ZOOM_LEVELS[0], Math.min(ZOOM_LEVELS[ZOOM_LEVELS.length - 1], Math.round(newPercent)));
+  if (!pdfjsDoc || clamped === zoomPercent) { updateZoomUi(); return; }
+
+  const ratio = clamped / zoomPercent;
+  const snap = snapshotState();
+  scaleSnapshotGeometry(snap, ratio);
+
+  zoomPercent = clamped;
+  DISPLAY_WIDTH = Math.round(BASE_DISPLAY_WIDTH * zoomPercent / 100);
+
+  const scrollFraction = pagesContainer.scrollHeight > 0 ? pagesContainer.scrollTop / pagesContainer.scrollHeight : 0;
+  await renderAllPages();
+  restoreSnapshot(snap);
+  resetHistory();
+  pagesContainer.scrollTop = scrollFraction * pagesContainer.scrollHeight;
+
+  updateZoomUi();
+  updatePageIndicator();
+}
+
+function updateZoomUi() {
+  zoomSelect.value = ZOOM_LEVELS.includes(zoomPercent) ? String(zoomPercent) : 'custom';
+  zoomOutBtn.disabled = zoomPercent <= ZOOM_LEVELS[0];
+  zoomInBtn.disabled = zoomPercent >= ZOOM_LEVELS[ZOOM_LEVELS.length - 1];
+}
+
+function fitWidth() {
+  const available = pagesContainer.clientWidth - 32;
+  if (available > 0) setZoom(Math.round((available / BASE_DISPLAY_WIDTH) * 100));
+}
+
+zoomOutBtn.addEventListener('click', () => {
+  const lower = [...ZOOM_LEVELS].reverse().find(l => l < zoomPercent);
+  setZoom(lower !== undefined ? lower : ZOOM_LEVELS[0]);
+});
+
+zoomInBtn.addEventListener('click', () => {
+  const higher = ZOOM_LEVELS.find(l => l > zoomPercent);
+  setZoom(higher !== undefined ? higher : ZOOM_LEVELS[ZOOM_LEVELS.length - 1]);
+});
+
+zoomSelect.addEventListener('change', () => {
+  if (zoomSelect.value === 'fit') fitWidth();
+  else setZoom(parseInt(zoomSelect.value, 10));
+});
+
+// ---------- Page indicator / navigation ----------
+
+function updatePageIndicator() {
+  if (!pages.length) { pageIndicator.textContent = '0 / 0'; pagePrevBtn.disabled = true; pageNextBtn.disabled = true; return; }
+  const current = pickTargetPage();
+  const idx = current ? pages.findIndex(p => p.pageNum === current.pageNum) : 0;
+  pageIndicator.textContent = `${idx + 1} / ${pages.length}`;
+  pagePrevBtn.disabled = idx <= 0;
+  pageNextBtn.disabled = idx >= pages.length - 1;
+}
+
+let pageIndicatorRaf = null;
+pagesContainer.addEventListener('scroll', () => {
+  if (pageIndicatorRaf) return;
+  pageIndicatorRaf = requestAnimationFrame(() => { pageIndicatorRaf = null; updatePageIndicator(); });
+});
+
+function goToPageOffset(delta) {
+  if (!pages.length) return;
+  const current = pickTargetPage();
+  const idx = current ? pages.findIndex(p => p.pageNum === current.pageNum) : 0;
+  const target = pages[Math.max(0, Math.min(pages.length - 1, idx + delta))];
+  if (target) target.wrapEl.scrollIntoView({ block: 'start', behavior: 'smooth' });
+}
+
+pagePrevBtn.addEventListener('click', () => goToPageOffset(-1));
+pageNextBtn.addEventListener('click', () => goToPageOffset(1));
+
+// ---------- Hide/show toolbar (distraction-free reading) ----------
+
+// A PDF opens straight into a clean, read-only-looking view - like Acrobat
+// Reader - with the tab/tool rows hidden and just the mini-topbar's Edit
+// button to step into editing. While hidden, the only interaction allowed
+// is highlighting (see handleTextLayerClick's guard and startBoxDrag's
+// nextTool) - clicking Edit reveals the same Edit / Fill & Sign / Create
+// Forms / Delete Pages tools as before, including editing existing text;
+// nothing about the tools themselves changed, only when they're reachable.
+function setToolbarHidden(hidden) {
+  document.body.classList.toggle('toolbar-hidden', hidden);
+  editorToggleBtn.textContent = hidden ? 'Edit' : 'Done';
+  editorToggleBtn.classList.toggle('primary-cta', hidden);
+}
+
+function toggleEditMode() {
+  const hidden = !document.body.classList.contains('toolbar-hidden');
+  setToolbarHidden(hidden);
+  currentTool = hidden ? 'highlight' : 'select';
+  updateToolButtons();
+}
+
+editorToggleBtn.addEventListener('click', toggleEditMode);
+viewerDownloadBtn.addEventListener('click', () => exportPdf());
+viewerPrintBtn.addEventListener('click', () => printDocument());
 
 // ---------- Tool switching ----------
 
@@ -364,6 +519,7 @@ deletePagesBtn.addEventListener('click', async () => {
 
     await renderAllPages();
     resetHistory();
+    updatePageIndicator();
 
     currentMode = 'edit';
     modeTabs.forEach(t => t.classList.toggle('active', t.dataset.mode === 'edit'));
@@ -492,11 +648,16 @@ editorClearBtn.addEventListener('click', () => {
   updateToolButtons();
   editorWorkspace.hidden = true;
   editorUpload.hidden = false;
+  document.body.classList.remove('workspace-active');
+  setToolbarHidden(true);
+  zoomPercent = 100;
+  DISPLAY_WIDTH = BASE_DISPLAY_WIDTH;
   resetHistory();
   setStatus('');
 });
 
 editorDownloadBtn.addEventListener('click', exportPdf);
+editorPrintBtn.addEventListener('click', printDocument);
 
 document.addEventListener('keydown', (e) => {
   if ((e.key === 'Delete' || e.key === 'Backspace') && selectedId) {
@@ -563,11 +724,15 @@ function handleOverlayMouseDown(e, pageNum, overlay) {
     return;
   }
 
-  if (currentTool === 'whiteout' || currentTool === 'highlight') {
+  if (currentTool === 'whiteout') {
     e.preventDefault();
     startBoxDrag(pageNum, overlay, startX, startY, currentTool);
     return;
   }
+  // 'highlight' isn't handled here: the overlay has pointer-events:none while
+  // that tool is active (see style.css), so drags land on the text layer
+  // instead and become a real text selection - see the mouseup listener
+  // below startBoxDrag.
 
   if (currentTool === 'draw') {
     e.preventDefault();
@@ -653,6 +818,9 @@ function formatDate(d, fmt) {
 // ---------- Existing-text editing (click text detected by pdf.js) ----------
 
 function handleTextLayerClick(e, pageNum, overlay, textLayer) {
+  // Reading view (tools hidden, before "Edit" is clicked): only highlighting
+  // is allowed, so existing text is never editable here.
+  if (document.body.classList.contains('toolbar-hidden')) return;
   if (currentMode !== 'edit' || currentTool !== 'select') return;
   const span = e.target.closest('span');
   if (!span || !textLayer.contains(span)) return;
@@ -789,8 +957,10 @@ function startTextEdit(span, pageNum, overlay) {
   });
 }
 
-// ---------- Whiteout / Highlight (drag rectangle) ----------
+// ---------- Whiteout (drag rectangle) ----------
 
+// Whiteout only now - highlight is a real text selection (see
+// createHighlightsFromSelection below), not an arbitrary drag rectangle.
 function startBoxDrag(pageNum, overlay, startX, startY, type) {
   const defaults = toolDefaults[type];
   const el = document.createElement('div');
@@ -800,10 +970,6 @@ function startBoxDrag(pageNum, overlay, startX, startY, type) {
   el.style.width = '0px';
   el.style.height = '0px';
   el.style.background = defaults.color;
-  if (type === 'highlight') {
-    el.style.opacity = HIGHLIGHT_OPACITY;
-    el.style.mixBlendMode = 'multiply';
-  }
   overlay.appendChild(el);
 
   function onMove(ev) {
@@ -855,6 +1021,76 @@ function startBoxDrag(pageNum, overlay, startX, startY, type) {
   document.addEventListener('mousemove', onMove);
   document.addEventListener('mouseup', onUp);
 }
+
+// ---------- Highlight (real text selection, like Acrobat's highlighter) ----------
+//
+// Unlike whiteout (an arbitrary drag rectangle), the highlight tool only
+// ever covers actual text. While it's active, the page overlay goes
+// pointer-events:none and the text layer becomes interactive (see
+// style.css's .tool-highlight rules), so a drag is a normal browser text
+// selection instead of a box-drag - dragging over an area with no text
+// selects nothing and creates no highlight, matching Acrobat's highlighter.
+// On mouseup, the selection's getClientRects() - one rect per visual line,
+// so a wrapped multi-line selection is handled for free - becomes one
+// highlight object per line, positioned exactly over that line of text.
+document.addEventListener('mouseup', () => {
+  if (currentTool !== 'highlight') return;
+  const selection = window.getSelection();
+  if (!selection || selection.rangeCount === 0 || selection.isCollapsed) return;
+  const range = selection.getRangeAt(0);
+  if (range.collapsed) return;
+
+  const rects = Array.from(range.getClientRects()).filter(r => r.width > 1 && r.height > 1);
+  selection.removeAllRanges();
+  if (!rects.length) return;
+
+  const defaults = toolDefaults.highlight;
+  const created = [];
+
+  for (const rect of rects) {
+    const cx = rect.left + rect.width / 2;
+    const cy = rect.top + rect.height / 2;
+    const hit = document.elementFromPoint(cx, cy);
+    const wrapEl = hit && hit.closest ? hit.closest('.page-wrap') : null;
+    const pageInfo = wrapEl ? pages.find(p => p.wrapEl === wrapEl) : null;
+    if (!pageInfo) continue;
+
+    const overlayRect = pageInfo.overlayEl.getBoundingClientRect();
+    const x = rect.left - overlayRect.left;
+    const y = rect.top - overlayRect.top;
+    const width = rect.width;
+    const height = rect.height;
+
+    const id = 'obj-' + (++objectCounter);
+    const el = document.createElement('div');
+    el.className = 'edit-object edit-highlight';
+    el.style.left = x + 'px';
+    el.style.top = y + 'px';
+    el.style.width = width + 'px';
+    el.style.height = height + 'px';
+    el.style.background = defaults.color;
+    el.style.opacity = HIGHLIGHT_OPACITY;
+    el.style.mixBlendMode = 'multiply';
+    el.dataset.id = id;
+    addResizeHandles(el);
+    pageInfo.overlayEl.appendChild(el);
+
+    const obj = { id, pageNum: pageInfo.pageNum, type: 'highlight', x, y, width, height, color: defaults.color, el };
+    objects.push(obj);
+    attachObjectHandlers(obj, true);
+    created.push(obj);
+  }
+
+  if (!created.length) return;
+
+  selectObject(created[created.length - 1].id);
+  // Reading view: stay on the highlight tool for the next drag, same as
+  // whiteout's default tool - there's no toolbar to switch back with.
+  const viewMode = document.body.classList.contains('toolbar-hidden');
+  currentTool = viewMode ? 'highlight' : 'select';
+  updateToolButtons();
+  pushHistory();
+});
 
 // ---------- Checkmark / Cross ----------
 
@@ -1696,7 +1932,7 @@ let drawCtx = signDrawCanvas.getContext('2d');
 let drawing = false;
 let lastPt = null;
 
-function openSignModal(mode) {
+async function openSignModal(mode) {
   signModalMode = mode;
   signModalTitle.textContent = mode === 'signature' ? 'Add your signature' : 'Add your initials';
   signActiveTab = 'draw';
@@ -1716,8 +1952,8 @@ function openSignModal(mode) {
     ? ''
     : "You've declined local storage in the cookie notice, so this won't be saved for reuse.";
 
-  renderSavedSignatures();
   signModal.hidden = false;
+  await renderSavedSignatures();
 }
 
 function closeSignModal() {
@@ -1811,30 +2047,82 @@ async function handleSignUploadFile(f) {
   signUploadPreview.hidden = false;
 }
 
-// Saved signatures (localStorage)
+// Saved signatures
+//
+// The desktop build of Inkbind persists these through a local file instead
+// of localStorage (see desktopSignaturesUsable below) - this plain hosted
+// web version has no such backend to write to, so it always falls back to
+// localStorage.
+let desktopSignaturesAvailable = null;
+
+async function desktopSignaturesUsable() {
+  if (desktopSignaturesAvailable !== null) return desktopSignaturesAvailable;
+  try {
+    const res = await fetch('/api/desktop/signatures?mode=signature');
+    desktopSignaturesAvailable = res.ok;
+  } catch {
+    desktopSignaturesAvailable = false;
+  }
+  return desktopSignaturesAvailable;
+}
+
 function savedSigStorageKey() {
   return 'inkbind.saved.' + signModalMode;
 }
 function hasStorageConsent() {
   return typeof window.inkbindHasStorageConsent !== 'function' || window.inkbindHasStorageConsent();
 }
-function getSavedSignatures() {
+function getLocalSavedSignatures() {
   if (!hasStorageConsent()) return [];
   try {
     return JSON.parse(localStorage.getItem(savedSigStorageKey()) || '[]');
   } catch { return []; }
 }
-function setSavedSignatures(list) {
+function setLocalSavedSignatures(list) {
   if (!hasStorageConsent()) return;
   try { localStorage.setItem(savedSigStorageKey(), JSON.stringify(list.slice(0, 6))); } catch {}
 }
-function addSavedSignature(dataUrl) {
-  const list = getSavedSignatures();
-  list.unshift({ id: 'sig-' + Date.now(), dataUrl });
-  setSavedSignatures(list);
+
+async function getSavedSignatures() {
+  if (!hasStorageConsent()) return [];
+  if (await desktopSignaturesUsable()) {
+    try {
+      const res = await fetch(`/api/desktop/signatures?mode=${encodeURIComponent(signModalMode)}`);
+      if (res.ok) return await res.json();
+    } catch { /* fall through to localStorage */ }
+  }
+  return getLocalSavedSignatures();
 }
-function renderSavedSignatures() {
-  const list = getSavedSignatures();
+
+async function addSavedSignature(dataUrl) {
+  if (!hasStorageConsent()) return;
+  if (await desktopSignaturesUsable()) {
+    try {
+      const res = await fetch('/api/desktop/signatures', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode: signModalMode, dataUrl }),
+      });
+      if (res.ok) return;
+    } catch { /* fall through to localStorage */ }
+  }
+  const list = getLocalSavedSignatures();
+  list.unshift({ id: 'sig-' + Date.now(), dataUrl });
+  setLocalSavedSignatures(list);
+}
+
+async function removeSavedSignature(id) {
+  if (await desktopSignaturesUsable()) {
+    try {
+      const res = await fetch(`/api/desktop/signatures/${encodeURIComponent(id)}?mode=${encodeURIComponent(signModalMode)}`, { method: 'DELETE' });
+      if (res.ok) return;
+    } catch { /* fall through to localStorage */ }
+  }
+  setLocalSavedSignatures(getLocalSavedSignatures().filter(i => i.id !== id));
+}
+
+async function renderSavedSignatures() {
+  const list = await getSavedSignatures();
   savedSignaturesBox.hidden = list.length === 0;
   savedSignaturesList.innerHTML = '';
   list.forEach(item => {
@@ -1846,9 +2134,9 @@ function renderSavedSignatures() {
     removeBtn.className = 'saved-sig-remove';
     removeBtn.textContent = '×';
     removeBtn.title = 'Remove';
-    removeBtn.addEventListener('click', (e) => {
+    removeBtn.addEventListener('click', async (e) => {
       e.stopPropagation();
-      setSavedSignatures(getSavedSignatures().filter(i => i.id !== item.id));
+      await removeSavedSignature(item.id);
       renderSavedSignatures();
     });
     thumb.appendChild(img);
@@ -1879,7 +2167,7 @@ signModalInsertBtn.addEventListener('click', async () => {
 
   if (!dataUrl) return;
 
-  if (saveSignatureCheck.checked) addSavedSignature(dataUrl);
+  if (saveSignatureCheck.checked) await addSavedSignature(dataUrl);
 
   const dims = await imageDataUrlSize(dataUrl);
   placeImageObject(signModalMode, dataUrl, dims.width, dims.height);
@@ -2541,13 +2829,12 @@ async function tryRemoveOriginalText(workDoc, pdfPages, editObjectsByPage) {
 
 // ---------- Export ----------
 
-async function exportPdf() {
-  editorDownloadBtn.disabled = true;
-  setStatus('Preparing your PDF...');
-
-  try {
-    const bytes = await file.arrayBuffer();
-    const srcDoc = await PDFDocument.load(bytes, { ignoreEncryption: true });
+// Builds the final PDF bytes with every edit baked in - shared by Save
+// (which writes these bytes to disk) and Print (which renders these exact
+// bytes so the printed pages match what Save would have written).
+async function buildFinalPdfBytes() {
+  const bytes = await file.arrayBuffer();
+  const srcDoc = await PDFDocument.load(bytes, { ignoreEncryption: true });
 
     // pdf-lib can't decrypt existing content streams, so encrypted sources are
     // rebuilt from rendered page images (via pdf.js, which decrypts fine) before
@@ -2685,14 +2972,38 @@ async function exportPdf() {
       }
     }
 
-    const outBytes = await workDoc.save();
-    downloadBlob(outBytes, deriveFilename());
+  return await workDoc.save();
+}
+
+async function exportPdf() {
+  editorDownloadBtn.disabled = true;
+  setStatus('Preparing your PDF...');
+
+  try {
+    const outBytes = await buildFinalPdfBytes();
+    await downloadBlob(outBytes, deriveFilename());
     setStatus('Downloaded.');
   } catch (err) {
     console.error(err);
     setStatus(`Failed to export: ${err.message}`, true);
   } finally {
     editorDownloadBtn.disabled = false;
+  }
+}
+
+async function printDocument() {
+  editorPrintBtn.disabled = true;
+  setStatus('Preparing to print...');
+
+  try {
+    const outBytes = await buildFinalPdfBytes();
+    await inkbindPrintPdfBytes(outBytes);
+    setStatus('');
+  } catch (err) {
+    console.error(err);
+    setStatus(`Failed to print: ${err.message}`, true);
+  } finally {
+    editorPrintBtn.disabled = false;
   }
 }
 
@@ -2772,16 +3083,11 @@ function deriveFilename() {
   return `${base}-edited.pdf`;
 }
 
-function downloadBlob(bytes, filename) {
-  const blob = new Blob([bytes], { type: 'application/pdf' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
+// findPywebviewApi/inkbindSaveFile live in desktop-save.js (shared by every
+// tool page): a plain <a download> blob link is all a real browser needs,
+// which is exactly what inkbindSaveFile falls back to here.
+async function downloadBlob(bytes, filename) {
+  await inkbindSaveFile(bytes, filename, 'application/pdf');
 }
 
 function setStatus(message, isError = false) {
