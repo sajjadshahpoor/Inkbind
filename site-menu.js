@@ -1,8 +1,9 @@
-// Help menu for the left app-rail - included on every page so "About" and
-// the desktop-app link are reachable no matter which tool you're using.
+// Site menu (hamburger, top-left of the topbar) - included on every page so
+// "About" and the desktop-app link are reachable no matter which tool you're
+// using.
 (function () {
-  const btn = document.getElementById('appRailHelpBtn');
-  const menu = document.getElementById('appRailHelpMenu');
+  const btn = document.getElementById('siteMenuBtn');
+  const menu = document.getElementById('siteMenuDropdown');
   if (!btn || !menu) return;
 
   function openMenu() {
@@ -30,7 +31,7 @@
   });
 
   // ---------- About Inkbind ----------
-  const aboutBtn = document.getElementById('appRailAboutBtn');
+  const aboutBtn = document.getElementById('menuAboutBtn');
   const aboutModal = document.getElementById('aboutModal');
   const aboutCloseBtn = document.getElementById('aboutModalCloseBtn');
   const aboutOkBtn = document.getElementById('aboutModalOkBtn');

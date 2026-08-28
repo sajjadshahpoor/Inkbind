@@ -8,44 +8,33 @@
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <nav class="app-rail">
-    <a class="app-rail-brand" href="index.html" title="Inkbind">I</a>
-    <a class="app-rail-btn" href="index.html" title="Home">
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 11.5L12 4l9 7.5M5 10v9a1 1 0 001 1h4v-6h4v6h4a1 1 0 001-1v-9" stroke-linecap="round" stroke-linejoin="round"/></svg>
-    </a>
-    <div class="app-rail-sep"></div>
-    <a class="app-rail-btn" href="merge.html" title="Merge PDFs">
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M7 3v14a2 2 0 002 2h8M7 3H5a2 2 0 00-2 2v14a2 2 0 002 2h2M7 3h8a2 2 0 012 2v4m-6 4h8m-4-4v8" stroke-linecap="round" stroke-linejoin="round"/></svg>
-    </a>
-    <a class="app-rail-btn" href="edit.html" title="Edit &amp; Sign PDF">
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 20h9M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z" stroke-linecap="round" stroke-linejoin="round"/></svg>
-    </a>
-    <a class="app-rail-btn" href="split.html" title="Split PDF">
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><line x1="20" y1="4" x2="8.12" y2="15.88" stroke-linecap="round"/><line x1="14.47" y1="14.48" x2="20" y2="20" stroke-linecap="round"/><line x1="8.12" y1="8.12" x2="12" y2="12" stroke-linecap="round"/></svg>
-    </a>
-    <a class="app-rail-btn" href="convert.html" title="Convert from PDF">
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 12a9 9 0 11-3.5-7.11" stroke-linecap="round" stroke-linejoin="round"/><path d="M21 3v6h-6" stroke-linecap="round" stroke-linejoin="round"/></svg>
-    </a>
-    <a class="app-rail-btn active" href="to-pdf.html" title="Convert to PDF">
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 12a9 9 0 113.5 7.11" stroke-linecap="round" stroke-linejoin="round"/><path d="M3 21v-6h6" stroke-linecap="round" stroke-linejoin="round"/></svg>
-    </a>
-    <a class="app-rail-btn" href="compress.html" title="Compress PDF">
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 9V5a1 1 0 011-1h4M4 15v4a1 1 0 001 1h4M20 9V5a1 1 0 00-1-1h-4M20 15v4a1 1 0 01-1 1h-4" stroke-linecap="round" stroke-linejoin="round"/></svg>
-    </a>
-
-    <div class="app-rail-spacer"></div>
-    <div class="app-rail-menu">
-      <button id="appRailHelpBtn" class="app-rail-btn" title="Help" aria-haspopup="true" aria-expanded="false">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 015.83 1c0 2-3 2-3 4" stroke-linecap="round" stroke-linejoin="round"/><line x1="12" y1="17" x2="12.01" y2="17" stroke-linecap="round"/></svg>
-      </button>
-      <div id="appRailHelpMenu" class="shell-menu-dropdown app-rail-menu-dropdown" hidden>
-        <a href="https://sajjadshahpoor.github.io/Inkbind-Desktop/" target="_blank" rel="noopener noreferrer" class="shell-menu-item">Get Desktop App</a>
-        <div class="shell-menu-sep"></div>
-        <button id="appRailAboutBtn" class="shell-menu-item">About Inkbind</button>
-        <a href="privacy.html" class="shell-menu-item">Privacy Policy</a>
+  <header class="site-topbar">
+    <div class="site-topbar-row">
+      <div class="site-menu-wrap">
+        <button id="siteMenuBtn" class="site-menu-btn" title="Menu" aria-haspopup="true" aria-expanded="false">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 6h16M4 12h16M4 18h16" stroke-linecap="round"/></svg>
+        </button>
+        <div id="siteMenuDropdown" class="site-menu-dropdown" hidden>
+          <a href="https://sajjadshahpoor.github.io/Inkbind-Desktop/" target="_blank" rel="noopener noreferrer" class="site-menu-item">Get Desktop App</a>
+          <div class="site-menu-sep"></div>
+          <button id="menuAboutBtn" class="site-menu-item">About Inkbind</button>
+          <a href="privacy.html" class="site-menu-item">Privacy Policy</a>
+        </div>
       </div>
+      <a class="site-brand" href="index.html">
+        <span class="site-brand-mark">I</span> Inkbind
+      </a>
     </div>
-  </nav>
+    <nav class="site-tabs">
+      <a class="site-tab" href="index.html">Home</a>
+      <a class="site-tab" href="merge.html">Merge</a>
+      <a class="site-tab" href="edit.html">Edit &amp; Sign</a>
+      <a class="site-tab" href="split.html">Split</a>
+      <a class="site-tab" href="convert.html">Convert from PDF</a>
+      <a class="site-tab active" href="to-pdf.html">Convert to PDF</a>
+      <a class="site-tab" href="compress.html">Compress</a>
+    </nav>
+  </header>
 
   <div id="aboutModal" class="modal-overlay" hidden>
     <div class="modal about-modal">
@@ -162,7 +151,7 @@
   <script src="lib/html2canvas.min.js"></script>
   <script src="lib/mammoth.browser.min.js"></script>
   <script src="to-pdf.js"></script>
-  <script src="help-menu.js"></script>
+  <script src="site-menu.js"></script>
   <script src="cookie-consent.js"></script>
 </body>
 </html>
